@@ -1,0 +1,9 @@
+{
+  "config": {
+    "JETPACK_AUTOLOAD_DEV": true,
+    "WP_DEBUG": true,
+    "WP_DEBUG_LOG": "/logs/debug.log",
+    "WP_DEBUG_DISPLAY": false,
+    "ALTERNATE_WP_CRON": true
+  }
+}
