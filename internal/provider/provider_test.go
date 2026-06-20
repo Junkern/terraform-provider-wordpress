@@ -20,7 +20,6 @@ const (
 provider "wordpress" {
 	host = "http://localhost:8888/wp-json/wp/v2"
 	username = "admin"
-	password = "PAtt mtD8 wSlu haQo ISXg FXHJ"
 }
 `
 )

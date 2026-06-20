@@ -16,6 +16,7 @@ const (
 	defaultContext  = "edit"
 	defaultPerPage  = 100
 	pageCollection  = "pages"
+	postCollection  = "posts"
 	userCollection  = "users"
 	jsonContentType = "application/json"
 )
@@ -71,6 +72,52 @@ type PageInput struct {
 	CommentStatus *string `json:"comment_status,omitempty"`
 	PingStatus    *string `json:"ping_status,omitempty"`
 	MenuOrder     *int64  `json:"menu_order,omitempty"`
+	Template      *string `json:"template,omitempty"`
+}
+
+// Post represents the WordPress post schema returned by the REST API.
+type Post struct {
+	ID            int64          `json:"id"`
+	Date          string         `json:"date"`
+	DateGMT       string         `json:"date_gmt"`
+	GUID          RenderedField  `json:"guid"`
+	Link          string         `json:"link"`
+	Modified      string         `json:"modified"`
+	ModifiedGMT   string         `json:"modified_gmt"`
+	Slug          string         `json:"slug"`
+	Status        string         `json:"status"`
+	Type          string         `json:"type"`
+	Password      string         `json:"password"`
+	Title         RenderedField  `json:"title"`
+	Content       ContentField   `json:"content"`
+	Author        int64          `json:"author"`
+	Excerpt       ProtectedField `json:"excerpt"`
+	FeaturedMedia int64          `json:"featured_media"`
+	CommentStatus string         `json:"comment_status"`
+	PingStatus    string         `json:"ping_status"`
+	Format        string         `json:"format"`
+	Sticky        bool           `json:"sticky"`
+	Template      string         `json:"template"`
+	Meta          map[string]any `json:"meta,omitempty"`
+}
+
+// PostInput is used for create and update requests.
+type PostInput struct {
+	Date          *string `json:"date,omitempty"`
+	DateGMT       *string `json:"date_gmt,omitempty"`
+	Slug          *string `json:"slug,omitempty"`
+	Status        *string `json:"status,omitempty"`
+	Type          *string `json:"type,omitempty"`
+	Password      *string `json:"password,omitempty"`
+	Title         *string `json:"title,omitempty"`
+	Content       *string `json:"content,omitempty"`
+	Author        *int64  `json:"author,omitempty"`
+	Excerpt       *string `json:"excerpt,omitempty"`
+	FeaturedMedia *int64  `json:"featured_media,omitempty"`
+	CommentStatus *string `json:"comment_status,omitempty"`
+	PingStatus    *string `json:"ping_status,omitempty"`
+	Format        *string `json:"format,omitempty"`
+	Sticky        *bool   `json:"sticky,omitempty"`
 	Template      *string `json:"template,omitempty"`
 }
 
@@ -205,6 +252,60 @@ func (c *Client) DeletePage(ctx context.Context, id int64) error {
 	query := url.Values{}
 	query.Set("force", "true")
 	return c.doJSON(ctx, http.MethodDelete, c.requestURL(path.Join(pageCollection, fmt.Sprintf("%d", id)), query), nil, nil)
+}
+
+// ListPosts returns the collection of posts using the edit context.
+func (c *Client) ListPosts(ctx context.Context) ([]Post, error) {
+	var posts []Post
+	query := url.Values{}
+	query.Set("context", defaultContext)
+	query.Set("per_page", fmt.Sprintf("%d", defaultPerPage))
+
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(postCollection, query), nil, &posts); err != nil {
+		return nil, err
+	}
+
+	return posts, nil
+}
+
+// GetPost returns a single post by ID.
+func (c *Client) GetPost(ctx context.Context, id int64) (*Post, error) {
+	var post Post
+	query := url.Values{}
+	query.Set("context", defaultContext)
+
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(path.Join(postCollection, fmt.Sprintf("%d", id)), query), nil, &post); err != nil {
+		return nil, err
+	}
+
+	return &post, nil
+}
+
+// CreatePost creates a new post.
+func (c *Client) CreatePost(ctx context.Context, input PostInput) (*Post, error) {
+	var post Post
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(postCollection, nil), input, &post); err != nil {
+		return nil, err
+	}
+
+	return &post, nil
+}
+
+// UpdatePost updates an existing post.
+func (c *Client) UpdatePost(ctx context.Context, id int64, input PostInput) (*Post, error) {
+	var post Post
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(path.Join(postCollection, fmt.Sprintf("%d", id)), nil), input, &post); err != nil {
+		return nil, err
+	}
+
+	return &post, nil
+}
+
+// DeletePost deletes a post permanently.
+func (c *Client) DeletePost(ctx context.Context, id int64) error {
+	query := url.Values{}
+	query.Set("force", "true")
+	return c.doJSON(ctx, http.MethodDelete, c.requestURL(path.Join(postCollection, fmt.Sprintf("%d", id)), query), nil, nil)
 }
 
 // ListUsers returns the collection of users using the edit context.

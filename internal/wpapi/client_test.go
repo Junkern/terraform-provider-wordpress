@@ -120,6 +120,122 @@ func TestClientPagesCRUD(t *testing.T) {
 	}
 }
 
+func TestClientPostsCRUD(t *testing.T) {
+	var sawList bool
+	var sawCreate bool
+	var sawGet bool
+	var sawUpdate bool
+	var sawDelete bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-json/wp/v2/posts":
+			if got := r.URL.Query().Get("context"); got != "edit" {
+				t.Fatalf("unexpected list context: %q", got)
+			}
+			if got := r.URL.Query().Get("per_page"); got != "100" {
+				t.Fatalf("unexpected list per_page: %q", got)
+			}
+			if user, pass, ok := r.BasicAuth(); !ok || user != "admin" || pass != "secret" {
+				t.Fatalf("missing basic auth: %q %q %v", user, pass, ok)
+			}
+			sawList = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]Post{{ID: 1, Title: RenderedField{Rendered: "Hello", Raw: "Hello"}, Content: ContentField{Rendered: "Body", Raw: "Body"}, Excerpt: ProtectedField{Rendered: "Summary", Raw: "Summary"}, Sticky: true}})
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/posts":
+			if user, pass, ok := r.BasicAuth(); !ok || user != "admin" || pass != "secret" {
+				t.Fatalf("missing basic auth on create: %q %q %v", user, pass, ok)
+			}
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode create payload: %v", err)
+			}
+			if payload["title"] != "Created" || payload["content"] != "Body" || payload["excerpt"] != "Summary" {
+				t.Fatalf("unexpected create payload: %#v", payload)
+			}
+			if payload["sticky"] != true || payload["format"] != "standard" {
+				t.Fatalf("unexpected create flags: %#v", payload)
+			}
+			sawCreate = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(Post{ID: 2, Title: RenderedField{Rendered: "Created", Raw: "Created"}, Content: ContentField{Rendered: "Body", Raw: "Body"}, Excerpt: ProtectedField{Rendered: "Summary", Raw: "Summary"}, Sticky: true, Format: "standard"})
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-json/wp/v2/posts/2":
+			if got := r.URL.Query().Get("context"); got != "edit" {
+				t.Fatalf("unexpected get context: %q", got)
+			}
+			sawGet = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(Post{ID: 2, Title: RenderedField{Rendered: "Created", Raw: "Created"}, Content: ContentField{Rendered: "Body", Raw: "Body"}, Excerpt: ProtectedField{Rendered: "Summary", Raw: "Summary"}, Sticky: true, Format: "standard"})
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/posts/2":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode update payload: %v", err)
+			}
+			if payload["title"] != "Updated" {
+				t.Fatalf("unexpected update payload: %#v", payload)
+			}
+			sawUpdate = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(Post{ID: 2, Title: RenderedField{Rendered: "Updated", Raw: "Updated"}, Content: ContentField{Rendered: "Body", Raw: "Body"}, Excerpt: ProtectedField{Rendered: "Summary", Raw: "Summary"}, Sticky: false, Format: "aside"})
+		case r.Method == http.MethodDelete && r.URL.Path == "/wp-json/wp/v2/posts/2":
+			if got := r.URL.Query().Get("force"); got != "true" {
+				t.Fatalf("unexpected delete force: %q", got)
+			}
+			sawDelete = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"deleted":true}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL+"/wp-json/wp/v2", "admin", "secret")
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	posts, err := client.ListPosts(context.Background())
+	if err != nil {
+		t.Fatalf("ListPosts returned error: %v", err)
+	}
+	if len(posts) != 1 || posts[0].ID != 1 {
+		t.Fatalf("unexpected list result: %#v", posts)
+	}
+
+	created, err := client.CreatePost(context.Background(), PostInput{Title: stringPtr("Created"), Content: stringPtr("Body"), Excerpt: stringPtr("Summary"), Sticky: boolPtr(true), Format: stringPtr("standard")})
+	if err != nil {
+		t.Fatalf("CreatePost returned error: %v", err)
+	}
+	if created.ID != 2 || created.Title.Rendered != "Created" {
+		t.Fatalf("unexpected create result: %#v", created)
+	}
+
+	post, err := client.GetPost(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("GetPost returned error: %v", err)
+	}
+	if post.ID != 2 {
+		t.Fatalf("unexpected get result: %#v", post)
+	}
+
+	updated, err := client.UpdatePost(context.Background(), 2, PostInput{Title: stringPtr("Updated")})
+	if err != nil {
+		t.Fatalf("UpdatePost returned error: %v", err)
+	}
+	if updated.Title.Rendered != "Updated" {
+		t.Fatalf("unexpected update result: %#v", updated)
+	}
+
+	if err := client.DeletePost(context.Background(), 2); err != nil {
+		t.Fatalf("DeletePost returned error: %v", err)
+	}
+
+	if !sawList || !sawCreate || !sawGet || !sawUpdate || !sawDelete {
+		t.Fatalf("missing calls: list=%v create=%v get=%v update=%v delete=%v", sawList, sawCreate, sawGet, sawUpdate, sawDelete)
+	}
+}
+
 func TestClientUsersCRUD(t *testing.T) {
 	var sawList bool
 	var sawCreate bool
@@ -249,5 +365,9 @@ func TestNewRequiresBaseURL(t *testing.T) {
 }
 
 func stringPtr(value string) *string {
+	return &value
+}
+
+func boolPtr(value bool) *bool {
 	return &value
 }
