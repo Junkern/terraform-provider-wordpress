@@ -78,6 +78,7 @@ jobs:
         run: |
           node --version
           npm install -g @wordpress/env
+          npm ls -g --depth=0 @wordpress/env
           wp-env --version
           wp-env start --runtime=playground
           wp-env status
@@ -87,23 +88,38 @@ jobs:
             sleep 5
           done
           APPLICATION_PASSWORD=$(go run cmd/wpappauth/main.go --password password)
+          sleep 10
           # Wait until the authenticated pages endpoint stops redirecting.
-          while true; do
-            response_code=$(curl -s -o /dev/null -w '%{http_code}' -u "admin:${APPLICATION_PASSWORD}" -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8888/wp-json/wp/v2/pages)
-            case "$response_code" in
-              3*)
-                echo "Waiting for the pages endpoint to become writable..."
-                sleep 5
-                ;;
-              *)
-                break
-                ;;
-            esac
-          done
+          # max_attempts=12
+          # attempt=1
+          # while true; do
+          #   response_headers=$(mktemp)
+          #   response_body=$(mktemp)
+          #   response_code=$(curl -sS -D "$response_headers" -o "$response_body" -w '%{http_code}' -u "admin:${APPLICATION_PASSWORD}" -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8888/wp-json/wp/v2/pages/ || true)
+          #   echo $response_headers
+          #   redirect_location=$(awk 'BEGIN { IGNORECASE = 1 } /^Location:/ { sub(/^Location:[[:space:]]*/, ""); print; exit }' "$response_headers")
+          #   response_excerpt=$(tr '\n' ' ' < "$response_body" | cut -c1-200)
+          #   rm -f "$response_headers" "$response_body"
+          #   echo "pages endpoint probe ${attempt}/${max_attempts}: status=${response_code} location=${redirect_location:-<none>} body=${response_excerpt:-<empty>}"
+          #   case "$response_code" in
+          #     3*)
+          #       if [ "$attempt" -ge "$max_attempts" ]; then
+          #         echo "pages endpoint still redirecting after ${max_attempts} attempts"
+          #         exit 1
+          #       fi
+          #       echo "Waiting for the pages endpoint to become writable..."
+          #       attempt=$((attempt + 1))
+          #       sleep 5
+          #       ;;
+          #     *)
+          #       break
+          #       ;;
+          #   esac
+          # done
           echo "APPLICATION_PASSWORD=${APPLICATION_PASSWORD}" >> $GITHUB_ENV
       - name: Run acceptance tests
         env:
           TF_ACC: "1"
           WP_TF_PROVIDER_PASSWORD: ${{ env.APPLICATION_PASSWORD }}
-        run: go test -v -cover ./internal/provider/
+        run: TF_LOG=DEBUG TF_ACC=1  go test -v -cover ./internal/provider/ -run TestAccPageResource
         timeout-minutes: 10
