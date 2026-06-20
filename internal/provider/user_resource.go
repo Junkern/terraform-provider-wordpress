@@ -270,7 +270,7 @@ func stringListFromValue(ctx context.Context, value types.List) []string {
 func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan userResourceModel
 
-	tflog.Debug(ctx, fmt.Sprintf("Wordpress user create"))
+	tflog.Debug(ctx, "Wordpress user create")
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -297,7 +297,7 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 // Read refreshes the Terraform state with the latest data.
 func (r *userResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	tflog.Debug(ctx, fmt.Sprintf("Wordpress user read"))
+	tflog.Debug(ctx, "Wordpress user read")
 	var state userResourceModel
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -324,7 +324,7 @@ func (r *userResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan userResourceModel
 
-	tflog.Debug(ctx, fmt.Sprintf("Wordpress user update"))
+	tflog.Debug(ctx, "Wordpress user update")
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {

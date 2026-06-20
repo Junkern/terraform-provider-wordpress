@@ -42,6 +42,10 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+      - uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4
+        with:
+          terraform_version: 1.14.*
+          terraform_wrapper: false
       - run: go generate ./...
       - name: git diff
         run: |
@@ -70,7 +74,15 @@ jobs:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
       - run: go mod download
-      - env:
+      - name: Setup wp-env
+        run: |
+          npm install -g @wordpress/env
+          wp-env start --runtime=playground
+          APPLICATION_PASSWORD=$(go run cmd/wpappauth/main.go --password password)
+          echo "APPLICATION_PASSWORD=${APPLICATION_PASSWORD}" >> $GITHUB_ENV
+      - name: Run acceptance tests
+        env:
           TF_ACC: "1"
+          WP_TF_PROVIDER_PASSWORD: ${{ env.APPLICATION_PASSWORD }}
         run: go test -v -cover ./internal/provider/
         timeout-minutes: 10

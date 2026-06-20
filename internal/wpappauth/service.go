@@ -116,7 +116,9 @@ func (s *Service) loadLoginPage(ctx context.Context, client *http.Client, siteUR
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("login page returned %s", resp.Status)
@@ -147,7 +149,9 @@ func (s *Service) login(ctx context.Context, client *http.Client, siteURL *url.U
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("login request returned %s", resp.Status)
@@ -191,7 +195,9 @@ func (s *Service) restAPIIsValid(ctx context.Context, client *http.Client, siteU
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return false, nil
@@ -218,7 +224,9 @@ func (s *Service) updatePermalinks(ctx context.Context, client *http.Client, sit
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("permalink page returned %s", resp.Status)
@@ -261,7 +269,9 @@ func (s *Service) updatePermalinks(ctx context.Context, client *http.Client, sit
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= 400 {
 		return fmt.Errorf("permalink update returned %s", response.Status)
@@ -288,7 +298,9 @@ func (s *Service) fetchProfileState(ctx context.Context, client *http.Client, si
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("profile page returned %s", resp.Status)
@@ -347,7 +359,9 @@ func (s *Service) createApplicationPassword(ctx context.Context, client *http.Cl
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("application password request returned %s", resp.Status)

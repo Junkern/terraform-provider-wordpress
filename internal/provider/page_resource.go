@@ -75,10 +75,6 @@ type renderedProtectedResourceModel struct {
 	Raw       types.String `tfsdk:"raw"`
 }
 
-type footnotesResourceModel struct {
-	FootNotes types.String `tfsdk:"footnotes"`
-}
-
 // Metadata returns the resource type name.
 func (r *pageResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_page"
@@ -352,7 +348,7 @@ func pageResourceModelFromPage(page *wpapi.Page, prior pageResourceModel) pageRe
 	}
 
 	return pageResourceModel{
-		ID:             types.Int64Value(int64(page.ID)),
+		ID:             types.Int64Value(page.ID),
 		Date:           types.StringValue(page.Date),
 		Date_gmt:       types.StringValue(page.DateGMT),
 		Link:           types.StringValue(page.Link),
@@ -361,12 +357,12 @@ func pageResourceModelFromPage(page *wpapi.Page, prior pageResourceModel) pageRe
 		Status:         types.StringValue(page.Status),
 		Type:           types.StringValue(page.Type),
 		Password:       types.StringValue(page.Password),
-		Parent:         types.Int64Value(int64(page.Parent)),
-		Author:         types.Int64Value(int64(page.Author)),
-		Featured_media: types.Int64Value(int64(page.FeaturedMedia)),
+		Parent:         types.Int64Value(page.Parent),
+		Author:         types.Int64Value(page.Author),
+		Featured_media: types.Int64Value(page.FeaturedMedia),
 		Comment_status: types.StringValue(page.CommentStatus),
 		Ping_status:    types.StringValue(page.PingStatus),
-		Menu_order:     types.Int64Value(int64(page.MenuOrder)),
+		Menu_order:     types.Int64Value(page.MenuOrder),
 		Template:       types.StringValue(page.Template),
 		Title: &renderedResourceModel{
 			Rendered: types.StringValue(page.Title.Rendered),
@@ -515,14 +511,14 @@ func stringPointer(value types.String) *string {
 func (r *pageResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan pageResourceModel
 
-	tflog.Debug(ctx, fmt.Sprintf("Wordpress page create"))
+	tflog.Debug(ctx, "Wordpress page create")
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	tflog.Info(ctx, fmt.Sprintf("Build page"))
+	tflog.Info(ctx, "Build page")
 	page, err := r.client.CreatePage(ctx, pageResourceInputFromModel(plan))
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -543,7 +539,7 @@ func (r *pageResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 // Read refreshes the Terraform state with the latest data.
 func (r *pageResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	tflog.Debug(ctx, fmt.Sprintf("Wordpress page read"))
+	tflog.Debug(ctx, "Wordpress page read")
 	var state pageResourceModel
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -571,7 +567,7 @@ func (r *pageResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 func (r *pageResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan pageResourceModel
 
-	tflog.Debug(ctx, fmt.Sprintf("Wordpress page update"))
+	tflog.Debug(ctx, "Wordpress page update")
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
