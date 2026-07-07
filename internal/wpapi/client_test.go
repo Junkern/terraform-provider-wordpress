@@ -1,12 +1,64 @@
 package wpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestClientDoesNotFollowRedirects(t *testing.T) {
+	var sawRedirectTarget bool
+	var logBuffer bytes.Buffer
+	originalOutput := log.Writer()
+	log.SetOutput(&logBuffer)
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wp-json/wp/v2/pages/":
+			w.Header().Set("Location", "/wp-json/wp/v2/pages/")
+			w.Header().Set("X-Redirect-By", "WordPress")
+			w.Header().Set("X-Test-Header", "present")
+			w.WriteHeader(http.StatusFound)
+		case "/wp-json/wp/v2/pages/redirect-target":
+			sawRedirectTarget = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL+"/wp-json/wp/v2", "admin", "secret")
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = client.CreatePage(context.Background(), PageInput{Title: stringPtr("Created")})
+	if err == nil {
+		t.Fatal("expected redirect error, got nil")
+	}
+	if sawRedirectTarget {
+		t.Fatal("redirect target was requested")
+	}
+	logOutput := logBuffer.String()
+	if !strings.Contains(logOutput, "Location: /wp-json/wp/v2/pages/") {
+		t.Fatalf("expected location header in logs, got %q", logOutput)
+	}
+	if !strings.Contains(logOutput, "X-Redirect-By: WordPress") {
+		t.Fatalf("expected x-redirect-by header in logs, got %q", logOutput)
+	}
+	if !strings.Contains(logOutput, "X-Test-Header: present") {
+		t.Fatalf("expected custom header in logs, got %q", logOutput)
+	}
+}
 
 func TestClientPagesCRUD(t *testing.T) {
 	var sawList bool

@@ -366,10 +366,18 @@ func (c *Client) DeleteUser(ctx context.Context, id int64, reassign int64) error
 
 func (c *Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
-		return c.HTTPClient
+		clone := *c.HTTPClient
+		clone.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		return &clone
 	}
 
-	return http.DefaultClient
+	return &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 func (c *Client) doJSON(ctx context.Context, method, rawURL string, body any, responseBody any) error {
@@ -403,6 +411,15 @@ func (c *Client) doJSON(ctx context.Context, method, rawURL string, body any, re
 	defer func() {
 		_ = resp.Body.Close()
 	}()
+
+	if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode < http.StatusBadRequest {
+		log.Printf("wordpress %s %s returned %s", method, rawURL, resp.Status)
+		for key, values := range resp.Header {
+			for _, value := range values {
+				log.Printf("%s: %s", key, value)
+			}
+		}
+	}
 
 	responseBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
