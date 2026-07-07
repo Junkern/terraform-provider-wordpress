@@ -84,7 +84,7 @@ jobs:
           npm install -g @wordpress/env
           npm ls -g --depth=0 @wordpress/env
           wp-env --version
-          wp-env start --runtime=playground
+          wp-env start
           wp-env status
           # Wait for wp-env to be ready before creating the application password.
           until curl -fsS http://localhost:8888/wp-json/wp/v2/ >/dev/null; do
