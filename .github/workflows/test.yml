@@ -17,22 +17,22 @@ permissions:
 
 jobs:
   # Ensure project builds before running testing matrix
-  # build:
-  #   name: Build
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 5
-  #   steps:
-  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-  #     - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-  #       with:
-  #         go-version-file: 'go.mod'
-  #         cache: true
-  #     - run: go mod download
-  #     - run: go build -v .
-  #     - name: Run linters
-  #       uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v3.7.0
-  #       with:
-  #         version: v2.12.2
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: go mod download
+      - run: go build -v .
+      - name: Run linters
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v3.7.0
+        with:
+          version: v2.12.2
 
   # generate:
   #   runs-on: ubuntu-latest
@@ -55,7 +55,7 @@ jobs:
   # Run acceptance tests in a matrix with Terraform CLI versions
   test:
     name: Terraform Provider Acceptance Tests
-    # needs: build
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -77,13 +77,13 @@ jobs:
         with:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
-      - run: go mod download
-      - name: Setup wp-env
+      - name: Download wp-env
         run: |
-          node --version
           npm install -g @wordpress/env
           npm ls -g --depth=0 @wordpress/env
           wp-env --version
+      - name: Setup wp-env
+        run: |
           wp-env start
           wp-env status
           # Wait for wp-env to be ready before creating the application password.
@@ -93,37 +93,11 @@ jobs:
           done
           APPLICATION_PASSWORD=$(go run cmd/wpappauth/main.go --password password)
           sleep 10
-          # Wait until the authenticated pages endpoint stops redirecting.
-          max_attempts=12
-          attempt=1
-          while true; do
-            response_headers=$(mktemp)
-            response_body=$(mktemp)
-            response_code=$(curl -sS -D "$response_headers" -o "$response_body" -w '%{http_code}' -u "admin:${APPLICATION_PASSWORD}" -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8888/wp-json/wp/v2/pages/ || true)
-            echo $response_headers
-            redirect_location=$(awk 'BEGIN { IGNORECASE = 1 } /^Location:/ { sub(/^Location:[[:space:]]*/, ""); print; exit }' "$response_headers")
-            response_excerpt=$(tr '\n' ' ' < "$response_body" | cut -c1-200)
-            rm -f "$response_headers" "$response_body"
-            echo "pages endpoint probe ${attempt}/${max_attempts}: status=${response_code} location=${redirect_location:-<none>} body=${response_excerpt:-<empty>}"
-            case "$response_code" in
-              3*)
-                if [ "$attempt" -ge "$max_attempts" ]; then
-                  echo "pages endpoint still redirecting after ${max_attempts} attempts"
-                  exit 1
-                fi
-                echo "Waiting for the pages endpoint to become writable..."
-                attempt=$((attempt + 1))
-                sleep 5
-                ;;
-              *)
-                break
-                ;;
-            esac
-          done
           echo "APPLICATION_PASSWORD=${APPLICATION_PASSWORD}" >> $GITHUB_ENV
       - name: Run acceptance tests
         env:
           TF_ACC: "1"
           WP_TF_PROVIDER_PASSWORD: ${{ env.APPLICATION_PASSWORD }}
-        run: TF_LOG=DEBUG TF_ACC=1  go test -v -cover ./internal/provider/ -run TestAccPageResource
+          TF_LOG: "INFO"
+        run: go test -v -cover ./internal/provider/
         timeout-minutes: 10
