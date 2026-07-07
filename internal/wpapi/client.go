@@ -230,7 +230,7 @@ func (c *Client) GetPage(ctx context.Context, id int64) (*Page, error) {
 // CreatePage creates a new page.
 func (c *Client) CreatePage(ctx context.Context, input PageInput) (*Page, error) {
 	var page Page
-	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(pageCollection, nil), input, &page); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(pageCollection+"/", nil), input, &page); err != nil {
 		return nil, err
 	}
 
@@ -284,7 +284,7 @@ func (c *Client) GetPost(ctx context.Context, id int64) (*Post, error) {
 // CreatePost creates a new post.
 func (c *Client) CreatePost(ctx context.Context, input PostInput) (*Post, error) {
 	var post Post
-	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(postCollection, nil), input, &post); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(postCollection+"/", nil), input, &post); err != nil {
 		return nil, err
 	}
 
@@ -338,7 +338,7 @@ func (c *Client) GetUser(ctx context.Context, id int64) (*User, error) {
 // CreateUser creates a new user.
 func (c *Client) CreateUser(ctx context.Context, input UserInput) (*User, error) {
 	var user User
-	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(userCollection, nil), input, &user); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(userCollection+"/", nil), input, &user); err != nil {
 		return nil, err
 	}
 
@@ -427,7 +427,13 @@ func (c *Client) doJSON(ctx context.Context, method, rawURL string, body any, re
 
 func (c *Client) requestURL(endpoint string, query url.Values) string {
 	clone := *c.BaseURL
-	clone.Path = path.Join(strings.TrimSuffix(clone.Path, "/"), endpoint)
+	basePath := strings.TrimSuffix(clone.Path, "/")
+	trimmedEndpoint := strings.TrimPrefix(endpoint, "/")
+	if strings.HasSuffix(endpoint, "/") {
+		clone.Path = basePath + "/" + strings.TrimSuffix(trimmedEndpoint, "/") + "/"
+	} else {
+		clone.Path = path.Join(basePath, trimmedEndpoint)
+	}
 	if len(query) > 0 {
 		clone.RawQuery = query.Encode()
 	}

@@ -29,7 +29,7 @@ func TestClientPagesCRUD(t *testing.T) {
 			sawList = true
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode([]Page{{ID: 1, Title: RenderedField{Rendered: "Hello", Raw: "Hello"}, Content: ContentField{Rendered: "Body", Raw: "Body"}, Excerpt: ProtectedField{Rendered: "Summary", Raw: "Summary"}}})
-		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/pages":
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/pages/":
 			if user, pass, ok := r.BasicAuth(); !ok || user != "admin" || pass != "secret" {
 				t.Fatalf("missing basic auth on create: %q %q %v", user, pass, ok)
 			}
@@ -142,7 +142,7 @@ func TestClientPostsCRUD(t *testing.T) {
 			sawList = true
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode([]Post{{ID: 1, Title: RenderedField{Rendered: "Hello", Raw: "Hello"}, Content: ContentField{Rendered: "Body", Raw: "Body"}, Excerpt: ProtectedField{Rendered: "Summary", Raw: "Summary"}, Sticky: true}})
-		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/posts":
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/posts/":
 			if user, pass, ok := r.BasicAuth(); !ok || user != "admin" || pass != "secret" {
 				t.Fatalf("missing basic auth on create: %q %q %v", user, pass, ok)
 			}
@@ -258,7 +258,7 @@ func TestClientUsersCRUD(t *testing.T) {
 			sawList = true
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode([]User{{ID: 1, Username: "admin", Name: "Admin", Email: "admin@example.com", Roles: []string{"administrator"}}})
-		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/users":
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/users/":
 			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode create payload: %v", err)
