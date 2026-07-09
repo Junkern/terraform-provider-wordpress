@@ -291,6 +291,43 @@ func (c *Client) ListPlugins(ctx context.Context) ([]Plugin, error) {
 	return plugins, nil
 }
 
+// GetPlugin returns a single plugin by file.
+func (c *Client) GetPlugin(ctx context.Context, plugin string) (*Plugin, error) {
+	var result Plugin
+	query := url.Values{}
+	query.Set("context", defaultContext)
+
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(path.Join(pluginCollection, plugin), query), nil, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CreatePlugin installs a plugin from its WordPress.org slug.
+func (c *Client) CreatePlugin(ctx context.Context, input PluginInput) (*Plugin, error) {
+	var result Plugin
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(pluginCollection+"/", nil), input, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdatePlugin updates an installed plugin, currently limited to activation status.
+func (c *Client) UpdatePlugin(ctx context.Context, plugin string, input PluginInput) (*Plugin, error) {
+	var result Plugin
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(path.Join(pluginCollection, plugin), nil), input, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeletePlugin removes an installed plugin.
+func (c *Client) DeletePlugin(ctx context.Context, plugin string) error {
+	return c.doJSON(ctx, http.MethodDelete, c.requestURL(path.Join(pluginCollection, plugin), nil), nil, nil)
+}
 
 // ListPosts returns the collection of posts using the edit context.
 func (c *Client) ListPosts(ctx context.Context) ([]Post, error) {

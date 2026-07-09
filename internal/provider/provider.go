@@ -100,6 +100,7 @@ func (p *WordpressProvider) Configure(ctx context.Context, req provider.Configur
 func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewPageResource,
+		NewPluginResource,
 		NewPostResource,
 		NewUserResource,
 	}
