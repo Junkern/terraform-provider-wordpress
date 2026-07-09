@@ -358,6 +358,110 @@ func TestClientUsersCRUD(t *testing.T) {
 	}
 }
 
+func TestClientPluginsCRUD(t *testing.T) {
+	var sawList bool
+	var sawCreate bool
+	var sawGet bool
+	var sawUpdate bool
+	var sawDelete bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-json/wp/v2/plugins":
+			if got := r.URL.Query().Get("context"); got != "edit" {
+				t.Fatalf("unexpected list context: %q", got)
+			}
+			if got := r.URL.Query().Get("per_page"); got != "100" {
+				t.Fatalf("unexpected list per_page: %q", got)
+			}
+			sawList = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]Plugin{{Plugin: "hello-dolly/hello.php", Status: "inactive", Name: "Hello Dolly", Version: "1.7.2", NetworkOnly: false, RequiresWP: "6.0", RequiresPHP: "7.4", Textdomain: "hello-dolly"}})
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/plugins/":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode create payload: %v", err)
+			}
+			if payload["slug"] != "hello-dolly" || payload["status"] != "active" {
+				t.Fatalf("unexpected create payload: %#v", payload)
+			}
+			sawCreate = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(Plugin{Plugin: "hello-dolly/hello.php", Status: "active", Name: "Hello Dolly", Version: "1.7.2", NetworkOnly: false, RequiresWP: "6.0", RequiresPHP: "7.4", Textdomain: "hello-dolly"})
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-json/wp/v2/plugins/hello-dolly/hello.php":
+			if got := r.URL.Query().Get("context"); got != "edit" {
+				t.Fatalf("unexpected get context: %q", got)
+			}
+			sawGet = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(Plugin{Plugin: "hello-dolly/hello.php", Status: "active", Name: "Hello Dolly", Version: "1.7.2", NetworkOnly: false, RequiresWP: "6.0", RequiresPHP: "7.4", Textdomain: "hello-dolly"})
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/plugins/hello-dolly/hello.php":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode update payload: %v", err)
+			}
+			if payload["status"] != "inactive" {
+				t.Fatalf("unexpected update payload: %#v", payload)
+			}
+			sawUpdate = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(Plugin{Plugin: "hello-dolly/hello.php", Status: "inactive", Name: "Hello Dolly", Version: "1.7.2", NetworkOnly: false, RequiresWP: "6.0", RequiresPHP: "7.4", Textdomain: "hello-dolly"})
+		case r.Method == http.MethodDelete && r.URL.Path == "/wp-json/wp/v2/plugins/hello-dolly/hello.php":
+			sawDelete = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"deleted":true}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL+"/wp-json/wp/v2", "admin", "secret")
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	plugins, err := client.ListPlugins(context.Background())
+	if err != nil {
+		t.Fatalf("ListPlugins returned error: %v", err)
+	}
+	if len(plugins) != 1 || plugins[0].Plugin != "hello-dolly/hello.php" {
+		t.Fatalf("unexpected list result: %#v", plugins)
+	}
+
+	created, err := client.CreatePlugin(context.Background(), PluginInput{Slug: "hello-dolly", Status: stringPtr("active")})
+	if err != nil {
+		t.Fatalf("CreatePlugin returned error: %v", err)
+	}
+	if created.Plugin != "hello-dolly/hello.php" || created.Status != "active" {
+		t.Fatalf("unexpected create result: %#v", created)
+	}
+
+	plugin, err := client.GetPlugin(context.Background(), "hello-dolly/hello.php")
+	if err != nil {
+		t.Fatalf("GetPlugin returned error: %v", err)
+	}
+	if plugin.Plugin != "hello-dolly/hello.php" {
+		t.Fatalf("unexpected get result: %#v", plugin)
+	}
+
+	updated, err := client.UpdatePlugin(context.Background(), "hello-dolly/hello.php", PluginInput{Status: stringPtr("inactive")})
+	if err != nil {
+		t.Fatalf("UpdatePlugin returned error: %v", err)
+	}
+	if updated.Status != "inactive" {
+		t.Fatalf("unexpected update result: %#v", updated)
+	}
+
+	if err := client.DeletePlugin(context.Background(), "hello-dolly/hello.php"); err != nil {
+		t.Fatalf("DeletePlugin returned error: %v", err)
+	}
+
+	if !sawList || !sawCreate || !sawGet || !sawUpdate || !sawDelete {
+		t.Fatalf("missing calls: list=%v create=%v get=%v update=%v delete=%v", sawList, sawCreate, sawGet, sawUpdate, sawDelete)
+	}
+}
+
 func TestNewRequiresBaseURL(t *testing.T) {
 	if _, err := New("", "admin", "secret"); err == nil {
 		t.Fatal("expected error for empty base URL")
