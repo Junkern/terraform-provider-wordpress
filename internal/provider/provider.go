@@ -108,6 +108,7 @@ func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Res
 func (p *WordpressProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewPagesDataSource,
+		NewPluginsDataSource,
 		NewPostsDataSource,
 		NewUsersDataSource,
 	}
