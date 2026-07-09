@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	defaultContext  = "edit"
-	defaultPerPage  = 100
-	pageCollection  = "pages"
-	postCollection  = "posts"
-	userCollection  = "users"
-	jsonContentType = "application/json"
+	defaultContext   = "edit"
+	defaultPerPage   = 100
+	pageCollection   = "pages"
+	pluginCollection = "plugins"
+	postCollection   = "posts"
+	userCollection   = "users"
+	jsonContentType  = "application/json"
 )
 
 // Client is a lightweight WordPress REST API client for page resources.
@@ -119,6 +120,28 @@ type PostInput struct {
 	Format        *string `json:"format,omitempty"`
 	Sticky        *bool   `json:"sticky,omitempty"`
 	Template      *string `json:"template,omitempty"`
+}
+
+// Plugin represents the WordPress plugin schema returned by the REST API.
+type Plugin struct {
+	Plugin      string `json:"plugin"`
+	Status      string `json:"status"`
+	Name        string `json:"name"`
+	PluginURI   string `json:"plugin_uri"`
+	Author      any    `json:"author,omitempty"`
+	AuthorURI   string `json:"author_uri"`
+	Description any    `json:"description,omitempty"`
+	Version     string `json:"version"`
+	NetworkOnly bool   `json:"network_only"`
+	RequiresWP  string `json:"requires_wp"`
+	RequiresPHP string `json:"requires_php"`
+	Textdomain  string `json:"textdomain"`
+}
+
+// PluginInput is used for create and update requests.
+type PluginInput struct {
+	Slug   string  `json:"slug,omitempty"`
+	Status *string `json:"status,omitempty"`
 }
 
 // User represents the WordPress user schema returned by the REST API.
@@ -253,6 +276,21 @@ func (c *Client) DeletePage(ctx context.Context, id int64) error {
 	query.Set("force", "true")
 	return c.doJSON(ctx, http.MethodDelete, c.requestURL(path.Join(pageCollection, fmt.Sprintf("%d", id)), query), nil, nil)
 }
+
+// ListPlugins returns the collection of installed plugins using the edit context.
+func (c *Client) ListPlugins(ctx context.Context) ([]Plugin, error) {
+	var plugins []Plugin
+	query := url.Values{}
+	query.Set("context", defaultContext)
+	query.Set("per_page", fmt.Sprintf("%d", defaultPerPage))
+
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(pluginCollection, query), nil, &plugins); err != nil {
+		return nil, err
+	}
+
+	return plugins, nil
+}
+
 
 // ListPosts returns the collection of posts using the edit context.
 func (c *Client) ListPosts(ctx context.Context) ([]Post, error) {
