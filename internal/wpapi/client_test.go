@@ -462,6 +462,107 @@ func TestClientPluginsCRUD(t *testing.T) {
 	}
 }
 
+func TestClientApplicationPasswordsCRUD(t *testing.T) {
+	var sawList bool
+	var sawCreate bool
+	var sawGet bool
+	var sawUpdate bool
+	var sawDelete bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-json/wp/v2/users/1/application-passwords":
+			if got := r.URL.Query().Get("context"); got != "edit" {
+				t.Fatalf("unexpected list context: %q", got)
+			}
+			sawList = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]ApplicationPassword{{UUID: "uuid-1", AppID: "app-1", Name: "ci", Created: "2026-01-01T00:00:00", LastUsed: nil, LastIP: nil}})
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/users/1/application-passwords/":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode create payload: %v", err)
+			}
+			if payload["name"] != "ci" || payload["app_id"] != "app-1" {
+				t.Fatalf("unexpected create payload: %#v", payload)
+			}
+			sawCreate = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(ApplicationPassword{UUID: "uuid-1", AppID: "app-1", Name: "ci", Password: "abcd efgh ijkl", Created: "2026-01-01T00:00:00"})
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-json/wp/v2/users/1/application-passwords/uuid-1":
+			if got := r.URL.Query().Get("context"); got != "edit" {
+				t.Fatalf("unexpected get context: %q", got)
+			}
+			sawGet = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(ApplicationPassword{UUID: "uuid-1", AppID: "app-1", Name: "ci", Created: "2026-01-01T00:00:00"})
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/users/1/application-passwords/uuid-1":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode update payload: %v", err)
+			}
+			if payload["name"] != "ci-updated" {
+				t.Fatalf("unexpected update payload: %#v", payload)
+			}
+			sawUpdate = true
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(ApplicationPassword{UUID: "uuid-1", AppID: "app-1", Name: "ci-updated", Created: "2026-01-01T00:00:00"})
+		case r.Method == http.MethodDelete && r.URL.Path == "/wp-json/wp/v2/users/1/application-passwords/uuid-1":
+			sawDelete = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"deleted":true}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL+"/wp-json/wp/v2", "admin", "secret")
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	passwords, err := client.ListApplicationPasswords(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListApplicationPasswords returned error: %v", err)
+	}
+	if len(passwords) != 1 || passwords[0].UUID != "uuid-1" {
+		t.Fatalf("unexpected list result: %#v", passwords)
+	}
+
+	created, err := client.CreateApplicationPassword(context.Background(), 1, ApplicationPasswordInput{Name: stringPtr("ci"), AppID: stringPtr("app-1")})
+	if err != nil {
+		t.Fatalf("CreateApplicationPassword returned error: %v", err)
+	}
+	if created.UUID != "uuid-1" || created.Password == "" {
+		t.Fatalf("unexpected create result: %#v", created)
+	}
+
+	password, err := client.GetApplicationPassword(context.Background(), 1, "uuid-1")
+	if err != nil {
+		t.Fatalf("GetApplicationPassword returned error: %v", err)
+	}
+	if password.UUID != "uuid-1" {
+		t.Fatalf("unexpected get result: %#v", password)
+	}
+
+	updated, err := client.UpdateApplicationPassword(context.Background(), 1, "uuid-1", ApplicationPasswordInput{Name: stringPtr("ci-updated")})
+	if err != nil {
+		t.Fatalf("UpdateApplicationPassword returned error: %v", err)
+	}
+	if updated.Name != "ci-updated" {
+		t.Fatalf("unexpected update result: %#v", updated)
+	}
+
+	if err := client.DeleteApplicationPassword(context.Background(), 1, "uuid-1"); err != nil {
+		t.Fatalf("DeleteApplicationPassword returned error: %v", err)
+	}
+
+	if !sawList || !sawCreate || !sawGet || !sawUpdate || !sawDelete {
+		t.Fatalf("missing calls: list=%v create=%v get=%v update=%v delete=%v", sawList, sawCreate, sawGet, sawUpdate, sawDelete)
+	}
+}
+
 func TestNewRequiresBaseURL(t *testing.T) {
 	if _, err := New("", "admin", "secret"); err == nil {
 		t.Fatal("expected error for empty base URL")
