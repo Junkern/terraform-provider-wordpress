@@ -10,6 +10,7 @@ import (
 	"terraform-provider-wordpress/internal/wpapi"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -18,6 +19,7 @@ import (
 
 // Ensure ScaffoldingProvider satisfies various provider interfaces.
 var _ provider.Provider = &WordpressProvider{}
+var _ provider.ProviderWithEphemeralResources = &WordpressProvider{}
 
 // ScaffoldingProvider defines the provider implementation.
 type WordpressProvider struct {
@@ -94,11 +96,13 @@ func (p *WordpressProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	resp.DataSourceData = client
+	resp.EphemeralResourceData = client
 	resp.ResourceData = client
 }
 
 func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		NewApplicationPasswordResource,
 		NewPageResource,
 		NewPluginResource,
 		NewPostResource,
@@ -108,10 +112,18 @@ func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Res
 
 func (p *WordpressProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
+		NewApplicationPasswordDataSource,
+		NewApplicationPasswordsDataSource,
 		NewPagesDataSource,
 		NewPluginsDataSource,
 		NewPostsDataSource,
 		NewUsersDataSource,
+	}
+}
+
+func (p *WordpressProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
+	return []func() ephemeral.EphemeralResource{
+		NewApplicationPasswordEphemeralResource,
 	}
 }
 

@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	defaultContext   = "edit"
-	defaultPerPage   = 100
-	pageCollection   = "pages"
-	pluginCollection = "plugins"
-	postCollection   = "posts"
-	userCollection   = "users"
-	jsonContentType  = "application/json"
+	defaultContext                = "edit"
+	defaultPerPage                = 100
+	applicationPasswordCollection = "application-passwords"
+	pageCollection                = "pages"
+	pluginCollection              = "plugins"
+	postCollection                = "posts"
+	userCollection                = "users"
+	jsonContentType               = "application/json"
 )
 
 // Client is a lightweight WordPress REST API client for page resources.
@@ -142,6 +143,23 @@ type Plugin struct {
 type PluginInput struct {
 	Slug   string  `json:"slug,omitempty"`
 	Status *string `json:"status,omitempty"`
+}
+
+// ApplicationPassword represents the WordPress application password schema.
+type ApplicationPassword struct {
+	UUID     string  `json:"uuid"`
+	AppID    string  `json:"app_id"`
+	Name     string  `json:"name"`
+	Password string  `json:"password,omitempty"`
+	Created  string  `json:"created"`
+	LastUsed *string `json:"last_used,omitempty"`
+	LastIP   *string `json:"last_ip,omitempty"`
+}
+
+// ApplicationPasswordInput is used for create and update requests.
+type ApplicationPasswordInput struct {
+	AppID *string `json:"app_id,omitempty"`
+	Name  *string `json:"name,omitempty"`
 }
 
 // User represents the WordPress user schema returned by the REST API.
@@ -329,6 +347,58 @@ func (c *Client) DeletePlugin(ctx context.Context, plugin string) error {
 	return c.doJSON(ctx, http.MethodDelete, c.requestURL(path.Join(pluginCollection, plugin), nil), nil, nil)
 }
 
+// ListApplicationPasswords returns all application passwords for a user.
+func (c *Client) ListApplicationPasswords(ctx context.Context, userID int64) ([]ApplicationPassword, error) {
+	var passwords []ApplicationPassword
+	query := url.Values{}
+	query.Set("context", defaultContext)
+	query.Set("per_page", fmt.Sprintf("%d", defaultPerPage))
+
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(applicationPasswordsPath(userID), query), nil, &passwords); err != nil {
+		return nil, err
+	}
+
+	return passwords, nil
+}
+
+// GetApplicationPassword returns one application password for a user.
+func (c *Client) GetApplicationPassword(ctx context.Context, userID int64, uuid string) (*ApplicationPassword, error) {
+	var password ApplicationPassword
+	query := url.Values{}
+	query.Set("context", defaultContext)
+
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(applicationPasswordsPath(userID, uuid), query), nil, &password); err != nil {
+		return nil, err
+	}
+
+	return &password, nil
+}
+
+// CreateApplicationPassword creates a new application password for a user.
+func (c *Client) CreateApplicationPassword(ctx context.Context, userID int64, input ApplicationPasswordInput) (*ApplicationPassword, error) {
+	var password ApplicationPassword
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(applicationPasswordsPath(userID)+"/", nil), input, &password); err != nil {
+		return nil, err
+	}
+
+	return &password, nil
+}
+
+// UpdateApplicationPassword updates an existing application password for a user.
+func (c *Client) UpdateApplicationPassword(ctx context.Context, userID int64, uuid string, input ApplicationPasswordInput) (*ApplicationPassword, error) {
+	var password ApplicationPassword
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(applicationPasswordsPath(userID, uuid), nil), input, &password); err != nil {
+		return nil, err
+	}
+
+	return &password, nil
+}
+
+// DeleteApplicationPassword deletes an existing application password for a user.
+func (c *Client) DeleteApplicationPassword(ctx context.Context, userID int64, uuid string) error {
+	return c.doJSON(ctx, http.MethodDelete, c.requestURL(applicationPasswordsPath(userID, uuid), nil), nil, nil)
+}
+
 // ListPosts returns the collection of posts using the edit context.
 func (c *Client) ListPosts(ctx context.Context) ([]Post, error) {
 	var posts []Post
@@ -513,4 +583,10 @@ func (c *Client) requestURL(endpoint string, query url.Values) string {
 		clone.RawQuery = query.Encode()
 	}
 	return clone.String()
+}
+
+func applicationPasswordsPath(userID int64, pathParts ...string) string {
+	parts := []string{userCollection, fmt.Sprintf("%d", userID), applicationPasswordCollection}
+	parts = append(parts, pathParts...)
+	return path.Join(parts...)
 }
