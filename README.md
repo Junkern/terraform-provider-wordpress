@@ -6,6 +6,24 @@ Terraform provider for managing WordPress content through the WordPress REST API
 
 The provider connects to a WordPress site via its REST API and uses application password authentication.
 
+## Supported Resources
+
+- `wordpress_page` - manage WordPress pages
+- `wordpress_plugin` - install, activate, and remove WordPress plugins
+- `wordpress_post` - manage WordPress posts
+- `wordpress_user` - manage WordPress users
+
+## Supported Data Sources
+
+- `wordpress_plugin_info` - read public plugin metadata from the WordPress.org registry by slug
+- `wordpress_pages` - read a list of WordPress pages
+- `wordpress_plugins` - read a list of installed WordPress plugins
+- `wordpress_posts` - read a list of WordPress posts
+- `wordpress_users` - read a list of WordPress users
+
+
+## Using the provider
+
 ### Provider configuration
 
 Configure the provider with the following settings:
@@ -25,19 +43,6 @@ provider "wordpress" {
 	password = "application-password"
 }
 ```
-
-## Supported Resources
-
-- `wordpress_page` - manage WordPress pages
-- `wordpress_user` - manage WordPress users
-
-## Supported Data Sources
-
-- `wordpress_pages` - read a list of WordPress pages
-
-
-## Using the provider
-
 
 
 ## Developing the Provider

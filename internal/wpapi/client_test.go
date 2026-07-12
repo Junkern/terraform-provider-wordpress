@@ -462,6 +462,65 @@ func TestClientPluginsCRUD(t *testing.T) {
 	}
 }
 
+func TestClientPluginInfo(t *testing.T) {
+	oldPluginInfoURL := pluginInfoURL
+	defer func() {
+		pluginInfoURL = oldPluginInfoURL
+	}()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if got := r.URL.Query().Get("action"); got != "plugin_information" {
+			t.Fatalf("unexpected action: %q", got)
+		}
+		if got := r.URL.Query().Get("request[slug]"); got != "woocommerce" {
+			t.Fatalf("unexpected slug: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PluginInfo{
+			Name:             "WooCommerce",
+			Slug:             "woocommerce",
+			Version:          "10.9.4",
+			Author:           "Automattic",
+			AuthorProfile:    "https://profiles.wordpress.org/automattic/",
+			Requires:         "6.9",
+			Tested:           "7.0.1",
+			RequiresPHP:      "7.4",
+			Rating:           90,
+			NumRatings:       4808,
+			ActiveInstalls:   7000000,
+			LastUpdated:      "2026-07-07 2:16pm GMT",
+			Homepage:         "https://woocommerce.com/",
+			DownloadLink:     "https://downloads.wordpress.org/plugin/woocommerce.10.9.4.zip",
+			ShortDescription: "An ecommerce plugin for WordPress.",
+		})
+	}))
+	defer server.Close()
+
+	pluginInfoURL = server.URL + "/"
+
+	client, err := New("https://example.invalid/wp-json/wp/v2", "admin", "secret")
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	client.HTTPClient = server.Client()
+
+	info, err := client.GetPluginInfo(context.Background(), "woocommerce")
+	if err != nil {
+		t.Fatalf("GetPluginInfo returned error: %v", err)
+	}
+
+	if info.Slug != "woocommerce" || info.Name != "WooCommerce" || info.Version != "10.9.4" {
+		t.Fatalf("unexpected info result: %#v", info)
+	}
+	if info.ActiveInstalls != 7000000 || info.Rating != 90 {
+		t.Fatalf("unexpected numeric fields: %#v", info)
+	}
+}
+
 func TestNewRequiresBaseURL(t *testing.T) {
 	if _, err := New("", "admin", "secret"); err == nil {
 		t.Fatal("expected error for empty base URL")
