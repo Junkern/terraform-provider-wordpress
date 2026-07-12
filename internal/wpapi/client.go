@@ -22,6 +22,8 @@ const (
 	jsonContentType  = "application/json"
 )
 
+var pluginInfoURL = "https://api.wordpress.org/plugins/info/1.2/"
+
 // Client is a lightweight WordPress REST API client for page resources.
 type Client struct {
 	BaseURL    *url.URL
@@ -142,6 +144,25 @@ type Plugin struct {
 type PluginInput struct {
 	Slug   string  `json:"slug,omitempty"`
 	Status *string `json:"status,omitempty"`
+}
+
+// PluginInfo represents the public WordPress.org plugin information response.
+type PluginInfo struct {
+	Name             string `json:"name"`
+	Slug             string `json:"slug"`
+	Version          string `json:"version"`
+	Author           string `json:"author"`
+	AuthorProfile    string `json:"author_profile"`
+	Requires         string `json:"requires"`
+	Tested           string `json:"tested"`
+	RequiresPHP      string `json:"requires_php"`
+	Rating           int64  `json:"rating"`
+	NumRatings       int64  `json:"num_ratings"`
+	ActiveInstalls   int64  `json:"active_installs"`
+	LastUpdated      string `json:"last_updated"`
+	Homepage         string `json:"homepage"`
+	DownloadLink     string `json:"download_link"`
+	ShortDescription string `json:"short_description"`
 }
 
 // User represents the WordPress user schema returned by the REST API.
@@ -329,6 +350,20 @@ func (c *Client) DeletePlugin(ctx context.Context, plugin string) error {
 	return c.doJSON(ctx, http.MethodDelete, c.requestURL(path.Join(pluginCollection, plugin), nil), nil, nil)
 }
 
+// GetPluginInfo returns public metadata for a WordPress.org plugin slug.
+func (c *Client) GetPluginInfo(ctx context.Context, slug string) (*PluginInfo, error) {
+	query := url.Values{}
+	query.Set("action", "plugin_information")
+	query.Set("request[slug]", slug)
+
+	var info PluginInfo
+	if err := c.doPublicJSON(ctx, http.MethodGet, pluginInfoURL+"?"+query.Encode(), &info); err != nil {
+		return nil, err
+	}
+
+	return &info, nil
+}
+
 // ListPosts returns the collection of posts using the edit context.
 func (c *Client) ListPosts(ctx context.Context) ([]Post, error) {
 	var posts []Post
@@ -467,6 +502,45 @@ func (c *Client) doJSON(ctx context.Context, method, rawURL string, body any, re
 	if strings.TrimSpace(c.Username) != "" {
 		req.SetBasicAuth(c.Username, c.Password)
 	}
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	responseBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		trimmed := strings.TrimSpace(string(responseBytes))
+		if trimmed != "" {
+			return fmt.Errorf("wordpress %s %s returned %s: %s", method, rawURL, resp.Status, trimmed)
+		}
+		return fmt.Errorf("wordpress %s %s returned %s", method, rawURL, resp.Status)
+	}
+
+	if responseBody == nil || len(responseBytes) == 0 {
+		return nil
+	}
+
+	if err := json.Unmarshal(responseBytes, responseBody); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) doPublicJSON(ctx context.Context, method, rawURL string, responseBody any) error {
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", jsonContentType)
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
