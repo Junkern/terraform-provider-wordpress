@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
 	"terraform-provider-wordpress/internal/wpapi"
 
@@ -47,11 +46,11 @@ func (d *pluginInfoDataSource) Configure(_ context.Context, req datasource.Confi
 		return
 	}
 
-	client, ok := req.ProviderData.(*wpapi.Client)
-	if !ok {
+	client, err := publicClientForProviderData(req.ProviderData)
+	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *wpapi.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			"Unable to Configure Data Source",
+			err.Error(),
 		)
 
 		return
