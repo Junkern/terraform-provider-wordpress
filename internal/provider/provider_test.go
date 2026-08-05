@@ -21,7 +21,6 @@ provider "wordpress" {
 	host = "http://localhost:8888/wp-json/wp/v2"
 	app_auth {
 		username = "admin"
-		password = "placeholder"
 	}
 }
 `

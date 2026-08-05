@@ -14,13 +14,8 @@ func TestAccThemeResource(t *testing.T) {
 				Config: `
 provider "wordpress" {
 	host = "http://localhost:8888/wp-json/wp/v2"
-	app_auth {
-		username = "admin"
-		password = "placeholder"
-	}
 	user_auth {
 		username = "admin"
-		password = "placeholder"
 	}
 }
 

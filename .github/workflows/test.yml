@@ -94,7 +94,8 @@ jobs:
       - name: Run acceptance tests
         env:
           TF_ACC: "1"
-          WP_TF_PROVIDER_PASSWORD: ${{ env.APPLICATION_PASSWORD }}
+          WP_TF_PROVIDER_APP_PASSWORD: ${{ env.APPLICATION_PASSWORD }}
+          WP_TF_PROVIDER_USER_PASSWORD: password
           TF_LOG: "INFO"
         run: go test -v -cover ./internal/provider/
         timeout-minutes: 10
