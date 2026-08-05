@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 
 	"terraform-provider-wordpress/internal/wpapi"
@@ -168,11 +167,11 @@ func (r *userResource) Configure(_ context.Context, req resource.ConfigureReques
 		return
 	}
 
-	client, ok := req.ProviderData.(*wpapi.Client)
-	if !ok {
+	client, err := appClientForProviderData(req.ProviderData)
+	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *wpapi.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			"Unable to Configure Resource",
+			err.Error(),
 		)
 
 		return

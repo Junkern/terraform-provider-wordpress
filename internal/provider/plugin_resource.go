@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
 	"terraform-provider-wordpress/internal/wpapi"
 
@@ -67,16 +66,16 @@ func (r *pluginResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"slug": schema.StringAttribute{
-				Required: true,
+				Required:    true,
 				Description: "The slug of the plugin. This is used to identify the plugin in WordPress and to install it. For example, the slug for the Hello Dolly plugin is `hello-dolly`",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"status": schema.StringAttribute{
-				Optional: true,
+				Optional:    true,
 				Description: "The status of the plugin. Can be 'active' or 'inactive'.",
-				Computed: true,
+				Computed:    true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -138,11 +137,11 @@ func (r *pluginResource) Configure(_ context.Context, req resource.ConfigureRequ
 		return
 	}
 
-	client, ok := req.ProviderData.(*wpapi.Client)
-	if !ok {
+	client, err := appClientForProviderData(req.ProviderData)
+	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *wpapi.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			"Unable to Configure Resource",
+			err.Error(),
 		)
 
 		return
