@@ -395,16 +395,6 @@ func (c *Client) GetApplicationPassword(ctx context.Context, userID int64, uuid 
 	return &password, nil
 }
 
-// CreateApplicationPassword creates a new application password for a user.
-func (c *Client) CreateApplicationPassword(ctx context.Context, userID int64, input ApplicationPasswordInput) (*ApplicationPassword, error) {
-	var password ApplicationPassword
-	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(applicationPasswordsPath(userID)+"/", nil), input, &password); err != nil {
-		return nil, err
-	}
-
-	return &password, nil
-}
-
 // UpdateApplicationPassword updates an existing application password for a user.
 func (c *Client) UpdateApplicationPassword(ctx context.Context, userID int64, uuid string, input ApplicationPasswordInput) (*ApplicationPassword, error) {
 	var password ApplicationPassword
@@ -430,7 +420,6 @@ func (c *Client) GetPluginInfo(ctx context.Context, slug string) (*PluginInfo, e
 	if err := c.doPublicJSON(ctx, http.MethodGet, pluginInfoURL+"?"+query.Encode(), &info); err != nil {
 		return nil, err
 	}
-	return &info, nil
 	return &info, nil
 }
 

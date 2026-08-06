@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"terraform-provider-wordpress/internal/wpapi"
+	"terraform-provider-wordpress/internal/wpappauth"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -25,7 +26,8 @@ func NewApplicationPasswordResource() resource.Resource {
 }
 
 type applicationPasswordResource struct {
-	client *wpapi.Client
+	client     *wpapi.Client
+	userClient *wpappauth.Service
 }
 
 type applicationPasswordResourceModel struct {
@@ -113,6 +115,12 @@ func (r *applicationPasswordResource) Configure(_ context.Context, req resource.
 	}
 
 	r.client = client
+	userClient, err := userClientForProviderData(req.ProviderData)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Configure Resource", err.Error())
+		return
+	}
+	r.userClient = userClient
 }
 
 func applicationPasswordModelFromAPI(password *wpapi.ApplicationPassword, prior applicationPasswordResourceModel) applicationPasswordResourceModel {
@@ -166,13 +174,18 @@ func (r *applicationPasswordResource) Create(ctx context.Context, req resource.C
 		return
 	}
 
-	password, err := r.client.CreateApplicationPassword(ctx, plan.UserID.ValueInt64(), applicationPasswordInputFromModel(plan))
+	created, err := r.userClient.CreateApplicationPassword(ctx, plan.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating application password", "Could not create application password, unexpected error: "+err.Error())
 		return
 	}
 
-	plan = applicationPasswordModelFromAPI(password, plan)
+	plan = applicationPasswordModelFromAPI(&wpapi.ApplicationPassword{
+		UUID:     created.UUID,
+		AppID:    created.AppID,
+		Name:     created.Name,
+		Password: created.Password,
+	}, plan)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }

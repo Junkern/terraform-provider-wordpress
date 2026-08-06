@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"terraform-provider-wordpress/internal/wpapi"
+	"terraform-provider-wordpress/internal/wpappauth"
 )
 
 const applicationPasswordTestUserID = 1
@@ -54,15 +54,17 @@ func testAccSeedApplicationPassword(t *testing.T, name string) *wpapi.Applicatio
 	t.Helper()
 
 	client := testAccApplicationPasswordClient(t)
-	appID := fmt.Sprintf("terraform-%d", time.Now().UnixNano())
+	service := &wpappauth.Service{
+		BaseURL:  "http://localhost:8888/wp-json/wp/v2",
+		Username: "admin",
+		Password: testAccApplicationPasswordPassword(t),
+	}
 	ctx := context.Background()
-	created, err := client.CreateApplicationPassword(ctx, applicationPasswordTestUserID, wpapi.ApplicationPasswordInput{
-		Name:  stringPtrTest(name),
-		AppID: stringPtrTest(appID),
-	})
+	createdResult, err := service.CreateApplicationPassword(ctx, name)
 	if err != nil {
 		t.Fatalf("unable to seed application password %q: %v", name, err)
 	}
+	created := &wpapi.ApplicationPassword{UUID: createdResult.UUID, AppID: createdResult.AppID, Name: createdResult.Name, Password: createdResult.Password}
 
 	t.Cleanup(func() {
 		if deleteErr := client.DeleteApplicationPassword(ctx, applicationPasswordTestUserID, created.UUID); deleteErr != nil {
@@ -71,8 +73,4 @@ func testAccSeedApplicationPassword(t *testing.T, name string) *wpapi.Applicatio
 	})
 
 	return created
-}
-
-func stringPtrTest(value string) *string {
-	return &value
 }

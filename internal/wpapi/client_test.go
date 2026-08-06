@@ -464,7 +464,6 @@ func TestClientPluginsCRUD(t *testing.T) {
 
 func TestClientApplicationPasswordsCRUD(t *testing.T) {
 	var sawList bool
-	var sawCreate bool
 	var sawGet bool
 	var sawUpdate bool
 	var sawDelete bool
@@ -478,17 +477,6 @@ func TestClientApplicationPasswordsCRUD(t *testing.T) {
 			sawList = true
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode([]ApplicationPassword{{UUID: "uuid-1", AppID: "app-1", Name: "ci", Created: "2026-01-01T00:00:00", LastUsed: nil, LastIP: nil}})
-		case r.Method == http.MethodPost && r.URL.Path == "/wp-json/wp/v2/users/1/application-passwords/":
-			var payload map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode create payload: %v", err)
-			}
-			if payload["name"] != "ci" || payload["app_id"] != "app-1" {
-				t.Fatalf("unexpected create payload: %#v", payload)
-			}
-			sawCreate = true
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(ApplicationPassword{UUID: "uuid-1", AppID: "app-1", Name: "ci", Password: "abcd efgh ijkl", Created: "2026-01-01T00:00:00"})
 		case r.Method == http.MethodGet && r.URL.Path == "/wp-json/wp/v2/users/1/application-passwords/uuid-1":
 			if got := r.URL.Query().Get("context"); got != "edit" {
 				t.Fatalf("unexpected get context: %q", got)
@@ -530,14 +518,6 @@ func TestClientApplicationPasswordsCRUD(t *testing.T) {
 		t.Fatalf("unexpected list result: %#v", passwords)
 	}
 
-	created, err := client.CreateApplicationPassword(context.Background(), 1, ApplicationPasswordInput{Name: stringPtr("ci"), AppID: stringPtr("app-1")})
-	if err != nil {
-		t.Fatalf("CreateApplicationPassword returned error: %v", err)
-	}
-	if created.UUID != "uuid-1" || created.Password == "" {
-		t.Fatalf("unexpected create result: %#v", created)
-	}
-
 	password, err := client.GetApplicationPassword(context.Background(), 1, "uuid-1")
 	if err != nil {
 		t.Fatalf("GetApplicationPassword returned error: %v", err)
@@ -558,8 +538,8 @@ func TestClientApplicationPasswordsCRUD(t *testing.T) {
 		t.Fatalf("DeleteApplicationPassword returned error: %v", err)
 	}
 
-	if !sawList || !sawCreate || !sawGet || !sawUpdate || !sawDelete {
-		t.Fatalf("missing calls: list=%v create=%v get=%v update=%v delete=%v", sawList, sawCreate, sawGet, sawUpdate, sawDelete)
+	if !sawList || !sawGet || !sawUpdate || !sawDelete {
+		t.Fatalf("missing calls: list=%v get=%v update=%v delete=%v", sawList, sawGet, sawUpdate, sawDelete)
 	}
 }
 

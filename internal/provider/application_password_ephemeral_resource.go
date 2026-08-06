@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"terraform-provider-wordpress/internal/wpapi"
+	"terraform-provider-wordpress/internal/wpappauth"
 
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	eschema "github.com/hashicorp/terraform-plugin-framework/ephemeral/schema"
@@ -24,7 +25,8 @@ func NewApplicationPasswordEphemeralResource() ephemeral.EphemeralResource {
 }
 
 type applicationPasswordEphemeralResource struct {
-	client *wpapi.Client
+	client     *wpapi.Client
+	userClient *wpappauth.Service
 }
 
 type applicationPasswordEphemeralModel struct {
@@ -99,6 +101,12 @@ func (r *applicationPasswordEphemeralResource) Configure(_ context.Context, req 
 	}
 
 	r.client = client
+	userClient, err := userClientForProviderData(req.ProviderData)
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Configure Ephemeral Resource", err.Error())
+		return
+	}
+	r.userClient = userClient
 }
 
 func (r *applicationPasswordEphemeralResource) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
@@ -113,10 +121,7 @@ func (r *applicationPasswordEphemeralResource) Open(ctx context.Context, req eph
 		deleteOnClose = config.DeleteOnClose.ValueBool()
 	}
 
-	created, err := r.client.CreateApplicationPassword(ctx, config.UserID.ValueInt64(), wpapi.ApplicationPasswordInput{
-		Name:  stringValuePointer(config.Name),
-		AppID: stringValuePointer(config.AppID),
-	})
+	created, err := r.userClient.CreateApplicationPassword(ctx, config.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to create ephemeral application password",
@@ -132,7 +137,7 @@ func (r *applicationPasswordEphemeralResource) Open(ctx context.Context, req eph
 		DeleteOnClose: types.BoolValue(deleteOnClose),
 		UUID:          types.StringValue(created.UUID),
 		Password:      types.StringValue(created.Password),
-		Created:       types.StringValue(created.Created),
+		Created:       types.StringNull(),
 	}
 
 	cleanupStateBytes, err := json.Marshal(applicationPasswordEphemeralCleanupState{
