@@ -11,6 +11,43 @@ import (
 	"testing"
 )
 
+func TestThemeNonceFromHTML(t *testing.T) {
+	testCases := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "localized settings strict json",
+			html: `<script>var _wpUpdatesSettings = {"ajax_nonce":"theme-nonce-123"};</script>`,
+			want: "theme-nonce-123",
+		},
+		{
+			name: "localized settings with whitespace",
+			html: `<script>var _wpUpdatesSettings = { "ajax_nonce" : "theme-nonce-abc" };</script>`,
+			want: "theme-nonce-abc",
+		},
+		{
+			name: "query string nonce",
+			html: `<a href="/wp-admin/update.php?action=install-theme&_ajax_nonce=nonce999&theme=astra">Install</a>`,
+			want: "nonce999",
+		},
+		{
+			name: "data attribute nonce",
+			html: `<button class="delete-theme" data-wpnonce="nonce-data-1">Delete</button>`,
+			want: "nonce-data-1",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := themeNonceFromHTML(tc.html); got != tc.want {
+				t.Fatalf("unexpected nonce: got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateApplicationPassword(t *testing.T) {
 	var sawLoginCookie bool
 	var sawPermalinkUpdate bool
@@ -128,6 +165,233 @@ func TestCreateApplicationPasswordRequiresFields(t *testing.T) {
 	service := Service{}
 	if _, err := service.CreateApplicationPassword(context.Background()); err == nil {
 		t.Fatal("expected error for missing fields")
+	}
+}
+
+func TestInstallTheme(t *testing.T) {
+	var sawAjaxCookie bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-login.php":
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_test_cookie", Value: "WP Cookie check", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("login page"))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-login.php":
+			if got := r.PostFormValue("log"); got != "admin" {
+				t.Fatalf("unexpected username: %q", got)
+			}
+			if got := r.PostFormValue("pwd"); got != "secret" {
+				t.Fatalf("unexpected password: %q", got)
+			}
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_logged_in_test", Value: "admin|session", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-admin/theme-install.php":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<script>var _wpUpdatesSettings = {"ajax_nonce":"theme-nonce-123"};</script>`))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-admin/admin-ajax.php":
+			if got := r.PostFormValue("action"); got != "install-theme" {
+				t.Fatalf("unexpected action: %q", got)
+			}
+			if got := r.PostFormValue("slug"); got != "astra" {
+				t.Fatalf("unexpected slug: %q", got)
+			}
+			if got := r.PostFormValue("_ajax_nonce"); got != "theme-nonce-123" {
+				t.Fatalf("unexpected ajax nonce: %q", got)
+			}
+			if cookie := r.Header.Get("Cookie"); strings.Contains(cookie, "wordpress_logged_in_test=admin|session") {
+				sawAjaxCookie = true
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	service := Service{
+		BaseURL:  server.URL + "/wp-json/wp/v2",
+		Username: "admin",
+		Password: "secret",
+	}
+
+	if err := service.InstallTheme(context.Background(), "astra"); err != nil {
+		t.Fatalf("InstallTheme returned error: %v", err)
+	}
+	if !sawAjaxCookie {
+		t.Fatal("ajax request did not carry logged-in cookie")
+	}
+}
+
+func TestInstallThemeRequiresFields(t *testing.T) {
+	service := Service{}
+	if err := service.InstallTheme(context.Background(), "astra"); err == nil {
+		t.Fatal("expected error for missing fields")
+	}
+}
+
+func TestInstallThemeReusesLoginSession(t *testing.T) {
+	var loginRequests int
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-login.php":
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_test_cookie", Value: "WP Cookie check", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("login page"))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-login.php":
+			loginRequests++
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_logged_in_test", Value: "admin|session", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-admin/theme-install.php":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<script>var _wpUpdatesSettings = {"ajax_nonce":"theme-nonce-123"};</script>`))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-admin/admin-ajax.php":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	service := Service{
+		BaseURL:  server.URL + "/wp-json/wp/v2",
+		Username: "admin",
+		Password: "secret",
+	}
+
+	if err := service.InstallTheme(context.Background(), "astra"); err != nil {
+		t.Fatalf("first InstallTheme returned error: %v", err)
+	}
+	if err := service.InstallTheme(context.Background(), "astra"); err != nil {
+		t.Fatalf("second InstallTheme returned error: %v", err)
+	}
+
+	if loginRequests != 1 {
+		t.Fatalf("expected exactly one login request, got %d", loginRequests)
+	}
+}
+
+func TestDeleteTheme(t *testing.T) {
+	var sawAjaxCookie bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-login.php":
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_test_cookie", Value: "WP Cookie check", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("login page"))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-login.php":
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_logged_in_test", Value: "admin|session", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-admin/themes.php":
+			if got := r.URL.Query().Get("theme"); got != "astra" {
+				t.Fatalf("unexpected theme query value: %q", got)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<script>var _wpUpdatesSettings = {"ajax_nonce":"theme-delete-nonce-123"};</script>`))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-admin/admin-ajax.php":
+			if got := r.PostFormValue("action"); got != "delete-theme" {
+				t.Fatalf("unexpected action: %q", got)
+			}
+			if got := r.PostFormValue("slug"); got != "astra" {
+				t.Fatalf("unexpected slug: %q", got)
+			}
+			if got := r.PostFormValue("_ajax_nonce"); got != "theme-delete-nonce-123" {
+				t.Fatalf("unexpected ajax nonce: %q", got)
+			}
+			if got := r.PostFormValue("_fs_nonce"); got != "" {
+				t.Fatalf("unexpected _fs_nonce: %q", got)
+			}
+			if got := r.PostFormValue("username"); got != "" {
+				t.Fatalf("unexpected username: %q", got)
+			}
+			if got := r.PostFormValue("password"); got != "" {
+				t.Fatalf("unexpected password: %q", got)
+			}
+			if got := r.PostFormValue("connection_type"); got != "" {
+				t.Fatalf("unexpected connection_type: %q", got)
+			}
+			if got := r.PostFormValue("public_key"); got != "" {
+				t.Fatalf("unexpected public_key: %q", got)
+			}
+			if got := r.PostFormValue("private_key"); got != "" {
+				t.Fatalf("unexpected private_key: %q", got)
+			}
+			if cookie := r.Header.Get("Cookie"); strings.Contains(cookie, "wordpress_logged_in_test=admin|session") {
+				sawAjaxCookie = true
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	service := Service{
+		BaseURL:  server.URL + "/wp-json/wp/v2",
+		Username: "admin",
+		Password: "secret",
+	}
+
+	if err := service.DeleteTheme(context.Background(), "astra"); err != nil {
+		t.Fatalf("DeleteTheme returned error: %v", err)
+	}
+	if !sawAjaxCookie {
+		t.Fatal("ajax request did not carry logged-in cookie")
+	}
+}
+
+func TestDeleteThemeRequiresFields(t *testing.T) {
+	service := Service{}
+	if err := service.DeleteTheme(context.Background(), "astra"); err == nil {
+		t.Fatal("expected error for missing fields")
+	}
+}
+
+func TestDeleteThemeReusesLoginSession(t *testing.T) {
+	var loginRequests int
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-login.php":
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_test_cookie", Value: "WP Cookie check", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("login page"))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-login.php":
+			loginRequests++
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_logged_in_test", Value: "admin|session", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-admin/themes.php":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<script>var _wpUpdatesSettings = {"ajax_nonce":"theme-delete-nonce-123"};</script>`))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-admin/admin-ajax.php":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	service := Service{
+		BaseURL:  server.URL + "/wp-json/wp/v2",
+		Username: "admin",
+		Password: "secret",
+	}
+
+	if err := service.DeleteTheme(context.Background(), "astra"); err != nil {
+		t.Fatalf("first DeleteTheme returned error: %v", err)
+	}
+	if err := service.DeleteTheme(context.Background(), "astra"); err != nil {
+		t.Fatalf("second DeleteTheme returned error: %v", err)
+	}
+
+	if loginRequests != 1 {
+		t.Fatalf("expected exactly one login request, got %d", loginRequests)
 	}
 }
 

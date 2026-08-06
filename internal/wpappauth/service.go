@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const defaultApplicationName = "terraform-provider-wordpress"
@@ -23,6 +24,18 @@ var noncePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`name='_wpnonce'\s+value='([^']+)'`),
 }
 
+var themeInstallNoncePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`"_ajax_nonce":"([^"]+)"`),
+	regexp.MustCompile(`"ajax_nonce":"([^"]+)"`),
+	regexp.MustCompile(`"_ajax_nonce"\s*:\s*"([^"]+)"`),
+	regexp.MustCompile(`"ajax_nonce"\s*:\s*"([^"]+)"`),
+	regexp.MustCompile(`_ajax_nonce=([a-zA-Z0-9]+)`),
+	regexp.MustCompile(`data-(?:ajax-nonce|wpnonce)="([^"]+)"`),
+	regexp.MustCompile(`data-(?:ajax-nonce|wpnonce)='([^']+)'`),
+	regexp.MustCompile(`name="_ajax_nonce"\s+value="([^"]+)"`),
+	regexp.MustCompile(`name='_ajax_nonce'\s+value='([^']+)'`),
+}
+
 // Service encapsulates the WordPress login and application password flow.
 type Service struct {
 	BaseURL         string
@@ -30,6 +43,10 @@ type Service struct {
 	Password        string
 	ApplicationName string
 	HTTPClient      *http.Client
+
+	mu           sync.Mutex
+	authedClient *http.Client
+	siteURL      *url.URL
 }
 
 // Result is the response returned by WordPress when creating an application password.
@@ -38,6 +55,44 @@ type Result struct {
 	AppID    string `json:"app_id"`
 	Name     string `json:"name"`
 	Password string `json:"password"`
+}
+
+// InstallTheme logs in with normal credentials and installs a theme via wp-admin/admin-ajax.php.
+func (s *Service) InstallTheme(ctx context.Context, slug string) error {
+	if strings.TrimSpace(slug) == "" {
+		return errors.New("theme slug is required")
+	}
+
+	client, siteURL, err := s.ensureAuthenticatedSession(ctx)
+	if err != nil {
+		return err
+	}
+
+	nonce, err := s.fetchThemeInstallNonce(ctx, client, siteURL)
+	if err != nil {
+		return err
+	}
+
+	return s.installThemeAJAX(ctx, client, siteURL, slug, nonce)
+}
+
+// DeleteTheme logs in with normal credentials and deletes an installed theme via wp-admin/admin-ajax.php.
+func (s *Service) DeleteTheme(ctx context.Context, slug string) error {
+	if strings.TrimSpace(slug) == "" {
+		return errors.New("theme slug is required")
+	}
+
+	client, siteURL, err := s.ensureAuthenticatedSession(ctx)
+	if err != nil {
+		return err
+	}
+
+	nonce, err := s.fetchThemeDeleteNonce(ctx, client, siteURL, slug)
+	if err != nil {
+		return err
+	}
+
+	return s.deleteThemeAJAX(ctx, client, siteURL, slug, nonce)
 }
 
 // CreateApplicationPassword logs in with the normal WordPress password and creates an application password.
@@ -57,12 +112,7 @@ func (s *Service) CreateApplicationPassword(ctx context.Context) (*Result, error
 		applicationName = defaultApplicationName
 	}
 
-	client, err := s.client()
-	if err != nil {
-		return nil, err
-	}
-
-	siteURL, err := siteBaseURL(s.BaseURL)
+	client, siteURL, err := s.ensureAuthenticatedSession(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +133,55 @@ func (s *Service) CreateApplicationPassword(ctx context.Context) (*Result, error
 	}
 
 	return s.createApplicationPassword(ctx, client, siteURL, state, applicationName)
+}
+
+func (s *Service) ensureAuthenticatedSession(ctx context.Context) (*http.Client, *url.URL, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.authedClient != nil && s.siteURL != nil {
+		return s.authedClient, s.siteURL, nil
+	}
+
+	if err := s.validateCredentials(); err != nil {
+		return nil, nil, err
+	}
+
+	client, err := s.client()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	siteURL, err := siteBaseURL(s.BaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := s.loadLoginPage(ctx, client, siteURL); err != nil {
+		return nil, nil, err
+	}
+	if err := s.login(ctx, client, siteURL); err != nil {
+		return nil, nil, err
+	}
+
+	s.authedClient = client
+	s.siteURL = siteURL
+
+	return s.authedClient, s.siteURL, nil
+}
+
+func (s *Service) validateCredentials() error {
+	if strings.TrimSpace(s.BaseURL) == "" {
+		return errors.New("base URL is required")
+	}
+	if strings.TrimSpace(s.Username) == "" {
+		return errors.New("username is required")
+	}
+	if strings.TrimSpace(s.Password) == "" {
+		return errors.New("password is required")
+	}
+
+	return nil
 }
 
 func (s *Service) client() (*http.Client, error) {
@@ -376,6 +475,232 @@ func (s *Service) createApplicationPassword(ctx context.Context, client *http.Cl
 	}
 
 	return &result, nil
+}
+
+func (s *Service) fetchThemeInstallNonce(ctx context.Context, client *http.Client, siteURL *url.URL) (string, error) {
+	themeInstallURL := joinPath(siteURL, "wp-admin/theme-install.php?browse=popular")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, themeInstallURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Referer", joinPath(siteURL, "wp-admin/"))
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("theme install page returned %s", resp.Status)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	body := string(bodyBytes)
+
+	// WordPress may render the login page instead of the theme installer when auth is missing.
+	if resp.Request != nil && strings.Contains(resp.Request.URL.Path, "wp-login.php") {
+		return "", errors.New("theme install request was redirected to wp-login.php; authenticated session may be missing or expired")
+	}
+
+	if strings.Contains(body, "not allowed to install themes") || strings.Contains(body, "you are not allowed to install themes") {
+		return "", errors.New("authenticated user is not allowed to install themes")
+	}
+
+	nonce := themeNonceFromHTML(string(bodyBytes))
+	if nonce != "" {
+		return nonce, nil
+	}
+
+	return "", fmt.Errorf("could not find theme install ajax nonce on theme-install page (%s)", themeNonceDebugInfo(body))
+}
+
+func (s *Service) installThemeAJAX(ctx context.Context, client *http.Client, siteURL *url.URL, slug, nonce string) error {
+	ajaxURL := joinPath(siteURL, "wp-admin/admin-ajax.php")
+	form := url.Values{}
+	form.Set("slug", slug)
+	form.Set("action", "install-theme")
+	form.Set("_ajax_nonce", nonce)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ajaxURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Referer", joinPath(siteURL, "wp-admin/theme-install.php?browse=popular"))
+	req.Header.Set("Origin", siteURL.String())
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	body := strings.TrimSpace(string(bodyBytes))
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("install-theme ajax request returned %s: %s", resp.Status, body)
+	}
+	if body == "0" {
+		return errors.New("install-theme ajax request was rejected")
+	}
+
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err == nil && !result.Success {
+		return fmt.Errorf("install-theme ajax request failed: %s", body)
+	}
+
+	return nil
+}
+
+func (s *Service) fetchThemeDeleteNonce(ctx context.Context, client *http.Client, siteURL *url.URL, slug string) (string, error) {
+	themeURL := joinPath(siteURL, "wp-admin/themes.php?theme="+url.QueryEscape(slug))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, themeURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Referer", joinPath(siteURL, "wp-admin/themes.php"))
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("theme detail page returned %s", resp.Status)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	nonce := themeNonceFromHTML(string(bodyBytes))
+	if nonce != "" {
+		return nonce, nil
+	}
+
+	return "", errors.New("could not find theme delete ajax nonce on themes page")
+}
+
+func themeNonceFromHTML(body string) string {
+	decoded := html.UnescapeString(body)
+	for _, pattern := range themeInstallNoncePatterns {
+		matches := pattern.FindStringSubmatch(decoded)
+		if len(matches) == 2 && matches[1] != "" {
+			return matches[1]
+		}
+	}
+
+	return ""
+}
+
+func themeNonceDebugInfo(body string) string {
+	decoded := html.UnescapeString(body)
+	hints := []string{}
+
+	if strings.Contains(decoded, "_wpUpdatesSettings") {
+		hints = append(hints, "contains _wpUpdatesSettings")
+	}
+	if strings.Contains(decoded, "ajax_nonce") {
+		hints = append(hints, "contains ajax_nonce")
+	}
+	if strings.Contains(decoded, "_ajax_nonce") {
+		hints = append(hints, "contains _ajax_nonce")
+	}
+	if strings.Contains(decoded, "wpnonce") {
+		hints = append(hints, "contains wpnonce")
+	}
+
+	window := 120
+	re := regexp.MustCompile(`(?is).{0,120}nonce.{0,120}`)
+	fragments := re.FindAllString(decoded, 2)
+	for i, fragment := range fragments {
+		trimmed := strings.Join(strings.Fields(fragment), " ")
+		if len(trimmed) > window {
+			trimmed = trimmed[:window] + "..."
+		}
+		hints = append(hints, fmt.Sprintf("fragment_%d=%q", i+1, trimmed))
+	}
+
+	if len(hints) == 0 {
+		return "no nonce-like markers found"
+	}
+
+	return strings.Join(hints, "; ")
+}
+
+func (s *Service) deleteThemeAJAX(ctx context.Context, client *http.Client, siteURL *url.URL, slug, nonce string) error {
+	ajaxURL := joinPath(siteURL, "wp-admin/admin-ajax.php")
+	form := url.Values{}
+	form.Set("slug", slug)
+	form.Set("action", "delete-theme")
+	form.Set("_ajax_nonce", nonce)
+	form.Set("_fs_nonce", "")
+	form.Set("username", "")
+	form.Set("password", "")
+	form.Set("connection_type", "")
+	form.Set("public_key", "")
+	form.Set("private_key", "")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ajaxURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Referer", joinPath(siteURL, "wp-admin/themes.php?theme="+url.QueryEscape(slug)))
+	req.Header.Set("Origin", siteURL.String())
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	body := strings.TrimSpace(string(bodyBytes))
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("delete-theme ajax request returned %s: %s", resp.Status, body)
+	}
+	if body == "0" {
+		return errors.New("delete-theme ajax request was rejected")
+	}
+
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err == nil && !result.Success {
+		return fmt.Errorf("delete-theme ajax request failed: %s", body)
+	}
+
+	return nil
 }
 
 func parseUserID(body string) (int, error) {

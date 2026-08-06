@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"terraform-provider-wordpress/internal/wpapi"
+	"terraform-provider-wordpress/internal/wpappauth"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
@@ -31,13 +32,25 @@ type WordpressProvider struct {
 
 // ScaffoldingProviderModel describes the provider data model.
 type WordpressProviderModel struct {
-	Host     types.String `tfsdk:"host"`
+	Host     types.String                `tfsdk:"host"`
+	AppAuth  *WordpressProviderAuthModel `tfsdk:"app_auth"`
+	UserAuth *WordpressProviderAuthModel `tfsdk:"user_auth"`
+}
+
+type WordpressProviderAuthModel struct {
 	Username types.String `tfsdk:"username"`
 	Password types.String `tfsdk:"password"`
 }
 
+type providerData struct {
+	AppClient   *wpapi.Client
+	UserClient  *wpappauth.Service
+	HasAppAuth  bool
+	HasUserAuth bool
+}
+
 func configValue(config types.String, envNames ...string) string {
-	if !config.IsNull() {
+	if !config.IsNull() && !config.IsUnknown() {
 		return config.ValueString()
 	}
 
@@ -50,6 +63,24 @@ func configValue(config types.String, envNames ...string) string {
 	return ""
 }
 
+func authConfigValue(config *WordpressProviderAuthModel, selector func(*WordpressProviderAuthModel) types.String, envNames ...string) string {
+	if config != nil {
+		return configValue(selector(config), envNames...)
+	}
+
+	for _, envName := range envNames {
+		if value, ok := os.LookupEnv(envName); ok {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func hasCredentialPair(username, password string) bool {
+	return username != "" && password != ""
+}
+
 func (p *WordpressProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "wordpress"
 	resp.Version = p.version
@@ -57,19 +88,41 @@ func (p *WordpressProvider) Metadata(ctx context.Context, req provider.MetadataR
 
 func (p *WordpressProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Provider for managing WordPress resources.\n\nProvider settings can also be read from environment variables: `WP_TF_PROVIDER_HOST`, `WP_TF_PROVIDER_USERNAME`, and `WP_TF_PROVIDER_PASSWORD`.",
+		Description: "Provider for managing WordPress resources.\n\nProvider settings can also be read from environment variables. Configure `app_auth` for REST resources and data sources, and `user_auth` for nonce/AJAX workflows.",
 		Attributes: map[string]schema.Attribute{
 			"host": schema.StringAttribute{
 				MarkdownDescription: "The base URL of the WordPress site, including the REST API endpoint. Example: `http://localhost:8888/wp-json/wp/v2`. Can also be set via the `WP_TF_PROVIDER_HOST` or `WORDPRESS_HOST` environment variables.",
 				Optional:            true,
 			},
-			"username": schema.StringAttribute{
-				MarkdownDescription: "Username to authenticate with. Example: `admin`. Can also be set via the `WP_TF_PROVIDER_USERNAME` or `WORDPRESS_USERNAME` environment variables.",
-				Optional:            true,
+		},
+		Blocks: map[string]schema.Block{
+			"app_auth": schema.SingleNestedBlock{
+				Description: "Application password authentication used by REST resources and data sources.",
+				Attributes: map[string]schema.Attribute{
+					"username": schema.StringAttribute{
+						Optional:            true,
+						MarkdownDescription: "Username used together with the application password. Can also be set via `WP_TF_PROVIDER_APP_USERNAME` or `WORDPRESS_APP_USERNAME`.",
+					},
+					"password": schema.StringAttribute{
+						Optional:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Application password for REST authentication. Can also be set via `WP_TF_PROVIDER_APP_PASSWORD` or `WORDPRESS_APP_PASSWORD`.",
+					},
+				},
 			},
-			"password": schema.StringAttribute{
-				MarkdownDescription: "Password to authenticate with. Needs to be an application password, otherwise you will encounter `401 Unauthorized` errors. See https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/ for more information. Can also be set via the `WP_TF_PROVIDER_PASSWORD` or `WORDPRESS_PASSWORD` environment variables.",
-				Optional:            true,
+			"user_auth": schema.SingleNestedBlock{
+				Description: "Normal WordPress user/password authentication used for nonce/AJAX workflows.",
+				Attributes: map[string]schema.Attribute{
+					"username": schema.StringAttribute{
+						Optional:            true,
+						MarkdownDescription: "Username for nonce/AJAX authentication. Can also be set via `WP_TF_PROVIDER_USER_USERNAME` or `WORDPRESS_USER_USERNAME`.",
+					},
+					"password": schema.StringAttribute{
+						Optional:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Normal user password for nonce/AJAX authentication. Can also be set via `WP_TF_PROVIDER_USER_PASSWORD` or `WORDPRESS_USER_PASSWORD`.",
+					},
+				},
 			},
 		},
 	}
@@ -85,19 +138,55 @@ func (p *WordpressProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	host := configValue(data.Host, "WP_TF_PROVIDER_HOST", "WORDPRESS_HOST")
-	username := configValue(data.Username, "WP_TF_PROVIDER_USERNAME", "WORDPRESS_USERNAME")
-	password := configValue(data.Password, "WP_TF_PROVIDER_PASSWORD", "WORDPRESS_PASSWORD")
 
-	// Example client configuration for data sources and resources
-	client, err := wpapi.New(host, username, password)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to configure WordPress client", err.Error())
+	appUsername := authConfigValue(data.AppAuth, func(model *WordpressProviderAuthModel) types.String { return model.Username }, "WP_TF_PROVIDER_APP_USERNAME", "WORDPRESS_APP_USERNAME")
+	appPassword := authConfigValue(data.AppAuth, func(model *WordpressProviderAuthModel) types.String { return model.Password }, "WP_TF_PROVIDER_APP_PASSWORD", "WORDPRESS_APP_PASSWORD")
+
+	userUsername := authConfigValue(data.UserAuth, func(model *WordpressProviderAuthModel) types.String { return model.Username }, "WP_TF_PROVIDER_USER_USERNAME", "WORDPRESS_USER_USERNAME")
+	userPassword := authConfigValue(data.UserAuth, func(model *WordpressProviderAuthModel) types.String { return model.Password }, "WP_TF_PROVIDER_USER_PASSWORD", "WORDPRESS_USER_PASSWORD")
+
+	hasAppAuth := hasCredentialPair(appUsername, appPassword)
+	hasUserAuth := hasCredentialPair(userUsername, userPassword)
+
+	if host == "" && (hasAppAuth || hasUserAuth) {
+		resp.Diagnostics.AddError(
+			"Invalid provider configuration",
+			"Host is required when app_auth or user_auth credentials are configured.",
+		)
 		return
 	}
 
-	resp.DataSourceData = client
-	resp.EphemeralResourceData = client
-	resp.ResourceData = client
+	dataSourceData := &providerData{HasAppAuth: hasAppAuth, HasUserAuth: hasUserAuth}
+	resourceData := &providerData{HasAppAuth: hasAppAuth, HasUserAuth: hasUserAuth}
+	ephemeralResourceData := &providerData{HasAppAuth: hasAppAuth, HasUserAuth: hasUserAuth}
+
+	if host != "" {
+		appClient, err := wpapi.New(host, appUsername, appPassword)
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to configure WordPress app_auth client", err.Error())
+			return
+		}
+
+		dataSourceData.AppClient = appClient
+		resourceData.AppClient = appClient
+		ephemeralResourceData.AppClient = appClient
+
+		if hasUserAuth {
+			userClient := &wpappauth.Service{
+				BaseURL:  host,
+				Username: userUsername,
+				Password: userPassword,
+			}
+
+			dataSourceData.UserClient = userClient
+			resourceData.UserClient = userClient
+			ephemeralResourceData.UserClient = userClient
+		}
+	}
+
+	resp.DataSourceData = dataSourceData
+	resp.EphemeralResourceData = ephemeralResourceData
+	resp.ResourceData = resourceData
 }
 
 func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Resource {
@@ -106,6 +195,7 @@ func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Res
 		NewPageResource,
 		NewPluginResource,
 		NewPostResource,
+		NewThemeResource,
 		NewUserResource,
 	}
 }
@@ -114,6 +204,7 @@ func (p *WordpressProvider) DataSources(ctx context.Context) []func() datasource
 	return []func() datasource.DataSource{
 		NewApplicationPasswordDataSource,
 		NewApplicationPasswordsDataSource,
+		NewPluginInfoDataSource,
 		NewPagesDataSource,
 		NewPluginsDataSource,
 		NewPostsDataSource,

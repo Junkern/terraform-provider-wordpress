@@ -4,40 +4,57 @@ Terraform provider for managing WordPress content through the WordPress REST API
 
 ## Overview
 
-The provider connects to a WordPress site via its REST API and uses application password authentication.
+The provider connects to a WordPress site via its REST API and supports both application-password REST authentication and normal user/password authentication for nonce/AJAX workflows.
+
+## Supported Resources
+
+- `wordpress_page` - manage WordPress pages
+- `wordpress_plugin` - install, activate, and remove WordPress plugins
+- `wordpress_post` - manage WordPress posts
+- `wordpress_user` - manage WordPress users
+
+## Supported Data Sources
+
+- `wordpress_plugin_info` - read public plugin metadata from the WordPress.org registry by slug
+- `wordpress_pages` - read a list of WordPress pages
+- `wordpress_plugins` - read a list of installed WordPress plugins
+- `wordpress_posts` - read a list of WordPress posts
+- `wordpress_users` - read a list of WordPress users
+
+
+## Using the provider
 
 ### Provider configuration
 
 Configure the provider with the following settings:
 
 - `host` - the base URL of the WordPress REST API, such as `http://localhost:8888/wp-json/wp/v2`
-- `username` - the WordPress username to authenticate with
-- `password` - a WordPress application password
+- `app_auth` - optional nested block for REST resources/data sources using application-password auth
+- `user_auth` - optional nested block for resources/data sources that require nonce/AJAX flows
 
-These values can also be supplied via environment variables: `WP_TF_PROVIDER_HOST`, `WP_TF_PROVIDER_USERNAME`, and `WP_TF_PROVIDER_PASSWORD`. The legacy `WORDPRESS_*` names are still accepted.
+These values can also be supplied via environment variables:
+
+- `WP_TF_PROVIDER_HOST` (or `WORDPRESS_HOST`)
+- `WP_TF_PROVIDER_APP_USERNAME` and `WP_TF_PROVIDER_APP_PASSWORD` (or `WORDPRESS_APP_USERNAME` and `WORDPRESS_APP_PASSWORD`)
+- `WP_TF_PROVIDER_USER_USERNAME` and `WP_TF_PROVIDER_USER_PASSWORD` (or `WORDPRESS_USER_USERNAME` and `WORDPRESS_USER_PASSWORD`)
 
 Example:
 
 ```hcl
 provider "wordpress" {
-	host     = "http://localhost:8888/wp-json/wp/v2"
-	username = "admin"
-	password = "application-password"
+	host = "http://localhost:8888/wp-json/wp/v2"
+
+	app_auth {
+		username = "admin"
+		password = "application-password"
+	}
+
+	user_auth {
+		username = "admin"
+		password = "real-user-password"
+	}
 }
 ```
-
-## Supported Resources
-
-- `wordpress_page` - manage WordPress pages
-- `wordpress_user` - manage WordPress users
-
-## Supported Data Sources
-
-- `wordpress_pages` - read a list of WordPress pages
-
-
-## Using the provider
-
 
 
 ## Developing the Provider

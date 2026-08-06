@@ -103,11 +103,11 @@ func (r *applicationPasswordResource) Configure(_ context.Context, req resource.
 		return
 	}
 
-	client, ok := req.ProviderData.(*wpapi.Client)
-	if !ok {
+	client, err := appClientForProviderData(req.ProviderData)
+	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *wpapi.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			"Unable to Configure Resource",
+			err.Error(),
 		)
 		return
 	}

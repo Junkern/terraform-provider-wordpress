@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"terraform-provider-wordpress/internal/wpapi"
 
@@ -90,11 +89,11 @@ func (r *applicationPasswordEphemeralResource) Configure(_ context.Context, req 
 		return
 	}
 
-	client, ok := req.ProviderData.(*wpapi.Client)
-	if !ok {
+	client, err := appClientForProviderData(req.ProviderData)
+	if err != nil {
 		resp.Diagnostics.AddError(
-			"Unexpected Ephemeral Resource Configure Type",
-			fmt.Sprintf("Expected *wpapi.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			"Unable to Configure Ephemeral Resource",
+			err.Error(),
 		)
 		return
 	}

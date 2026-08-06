@@ -19,7 +19,9 @@ const (
 	providerConfig = `
 provider "wordpress" {
 	host = "http://localhost:8888/wp-json/wp/v2"
-	username = "admin"
+	app_auth {
+		username = "admin"
+	}
 }
 `
 )
@@ -45,21 +47,18 @@ func TestConfigValuePrefersExplicitConfig(t *testing.T) {
 
 func TestConfigValueUsesProviderEnvironmentVariables(t *testing.T) {
 	t.Setenv("WP_TF_PROVIDER_PASSWORD", "env-password")
-	t.Setenv("WORDPRESS_PASSWORD", "legacy-password")
 
-	value := configValue(types.String{}, "WP_TF_PROVIDER_PASSWORD", "WORDPRESS_PASSWORD")
+	value := configValue(types.String{}, "WP_TF_PROVIDER_PASSWORD")
 
 	if value != "env-password" {
 		t.Fatalf("expected provider env var to win, got %q", value)
 	}
 }
 
-func TestConfigValueFallsBackToLegacyEnvironmentVariables(t *testing.T) {
-	t.Setenv("WORDPRESS_USERNAME", "legacy-user")
+func TestConfigValueReturnsEmptyWhenEnvironmentVariableMissing(t *testing.T) {
+	value := configValue(types.String{}, "WP_TF_PROVIDER_USERNAME")
 
-	value := configValue(types.String{}, "WP_TF_PROVIDER_USERNAME", "WORDPRESS_USERNAME")
-
-	if value != "legacy-user" {
-		t.Fatalf("expected legacy env var to be used, got %q", value)
+	if value != "" {
+		t.Fatalf("expected empty value when env var is missing, got %q", value)
 	}
 }
