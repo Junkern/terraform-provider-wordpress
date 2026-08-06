@@ -36,6 +36,8 @@ var themeInstallNoncePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`name='_ajax_nonce'\s+value='([^']+)'`),
 }
 
+var themeActivationHrefPattern = regexp.MustCompile(`(?is)href\s*=\s*["']([^"']*themes\.php\?[^"']*)["']`)
+
 // Service encapsulates the WordPress login and application password flow.
 type Service struct {
 	BaseURL         string
@@ -93,6 +95,82 @@ func (s *Service) DeleteTheme(ctx context.Context, slug string) error {
 	}
 
 	return s.deleteThemeAJAX(ctx, client, siteURL, slug, nonce)
+}
+
+// ActivateTheme activates an installed theme through wp-admin.
+func (s *Service) ActivateTheme(ctx context.Context, slug string) error {
+	if strings.TrimSpace(slug) == "" {
+		return errors.New("theme slug is required")
+	}
+
+	client, siteURL, err := s.ensureAuthenticatedSession(ctx)
+	if err != nil {
+		return err
+	}
+
+	activationURL, err := s.fetchThemeActivationURL(ctx, client, siteURL, slug)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, activationURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Referer", joinPath(siteURL, "wp-admin/themes.php"))
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("theme activation request returned %s", resp.Status)
+	}
+
+	return nil
+}
+
+func (s *Service) fetchThemeActivationURL(ctx context.Context, client *http.Client, siteURL *url.URL, slug string) (string, error) {
+	themesURL := joinPath(siteURL, "wp-admin/themes.php")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, themesURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Referer", themesURL)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("themes page returned %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	for _, match := range themeActivationHrefPattern.FindAllStringSubmatch(html.UnescapeString(string(body)), -1) {
+		if len(match) != 2 {
+			continue
+		}
+		parsed, err := url.Parse(match[1])
+		if err != nil || !strings.HasSuffix(parsed.Path, "/wp-admin/themes.php") {
+			continue
+		}
+		query := parsed.Query()
+		if query.Get("action") == "activate" && query.Get("stylesheet") == slug && query.Get("_wpnonce") != "" {
+			return joinPath(siteURL, "wp-admin/themes.php") + "?" + query.Encode(), nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find activation link for theme %q", slug)
 }
 
 // CreateApplicationPassword logs in with the normal WordPress password and creates an application password.

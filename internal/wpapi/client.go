@@ -18,6 +18,7 @@ const (
 	pageCollection   = "pages"
 	pluginCollection = "plugins"
 	postCollection   = "posts"
+	themeCollection  = "themes"
 	userCollection   = "users"
 	jsonContentType  = "application/json"
 )
@@ -163,6 +164,12 @@ type PluginInfo struct {
 	Homepage         string `json:"homepage"`
 	DownloadLink     string `json:"download_link"`
 	ShortDescription string `json:"short_description"`
+}
+
+// Theme represents the WordPress theme schema returned by the REST API.
+type Theme struct {
+	Stylesheet string `json:"stylesheet"`
+	Status     string `json:"status"`
 }
 
 // User represents the WordPress user schema returned by the REST API.
@@ -362,6 +369,20 @@ func (c *Client) GetPluginInfo(ctx context.Context, slug string) (*PluginInfo, e
 	}
 
 	return &info, nil
+}
+
+// ListThemes returns installed themes using the edit context.
+func (c *Client) ListThemes(ctx context.Context) ([]Theme, error) {
+	var themes []Theme
+	query := url.Values{}
+	query.Set("context", defaultContext)
+	query.Set("per_page", fmt.Sprintf("%d", defaultPerPage))
+
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(themeCollection, query), nil, &themes); err != nil {
+		return nil, err
+	}
+
+	return themes, nil
 }
 
 // ListPosts returns the collection of posts using the edit context.
