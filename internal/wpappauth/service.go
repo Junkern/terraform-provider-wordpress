@@ -96,7 +96,7 @@ func (s *Service) DeleteTheme(ctx context.Context, slug string) error {
 }
 
 // CreateApplicationPassword logs in with the normal WordPress password and creates an application password.
-func (s *Service) CreateApplicationPassword(ctx context.Context) (*Result, error) {
+func (s *Service) CreateApplicationPassword(ctx context.Context, applicationNames ...string) (*Result, error) {
 	if strings.TrimSpace(s.BaseURL) == "" {
 		return nil, errors.New("base URL is required")
 	}
@@ -108,6 +108,9 @@ func (s *Service) CreateApplicationPassword(ctx context.Context) (*Result, error
 	}
 
 	applicationName := strings.TrimSpace(s.ApplicationName)
+	if len(applicationNames) > 0 && strings.TrimSpace(applicationNames[0]) != "" {
+		applicationName = strings.TrimSpace(applicationNames[0])
+	}
 	if applicationName == "" {
 		applicationName = defaultApplicationName
 	}
@@ -117,12 +120,6 @@ func (s *Service) CreateApplicationPassword(ctx context.Context) (*Result, error
 		return nil, err
 	}
 
-	if err := s.loadLoginPage(ctx, client, siteURL); err != nil {
-		return nil, err
-	}
-	if err := s.login(ctx, client, siteURL); err != nil {
-		return nil, err
-	}
 	if err := s.ensureJSONRestAPI(ctx, client, siteURL); err != nil {
 		return nil, err
 	}
