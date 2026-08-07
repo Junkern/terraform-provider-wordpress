@@ -345,6 +345,42 @@ func TestDeleteTheme(t *testing.T) {
 	}
 }
 
+func TestActivateTheme(t *testing.T) {
+	var sawActivation bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-login.php":
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_test_cookie", Value: "WP Cookie check", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("login page"))
+		case r.Method == http.MethodPost && r.URL.Path == "/wp-login.php":
+			http.SetCookie(w, &http.Cookie{Name: "wordpress_logged_in_test", Value: "admin|session", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-admin/themes.php" && r.URL.Query().Get("action") == "":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<a href="/wp-admin/themes.php?action=activate&stylesheet=astra&_wpnonce=activate-nonce">Activate</a>`))
+		case r.Method == http.MethodGet && r.URL.Path == "/wp-admin/themes.php" && r.URL.Query().Get("action") == "activate":
+			if r.URL.Query().Get("stylesheet") != "astra" || r.URL.Query().Get("_wpnonce") != "activate-nonce" {
+				t.Fatalf("unexpected activation query: %s", r.URL.RawQuery)
+			}
+			sawActivation = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	service := Service{BaseURL: server.URL + "/wp-json/wp/v2", Username: "admin", Password: "secret"}
+	if err := service.ActivateTheme(context.Background(), "astra"); err != nil {
+		t.Fatalf("ActivateTheme returned error: %v", err)
+	}
+	if !sawActivation {
+		t.Fatal("activation request was not sent")
+	}
+}
+
 func TestDeleteThemeRequiresFields(t *testing.T) {
 	service := Service{}
 	if err := service.DeleteTheme(context.Background(), "astra"); err == nil {
