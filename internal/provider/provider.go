@@ -11,6 +11,7 @@ import (
 	"terraform-provider-wordpress/internal/wpappauth"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -19,6 +20,7 @@ import (
 
 // Ensure ScaffoldingProvider satisfies various provider interfaces.
 var _ provider.Provider = &WordpressProvider{}
+var _ provider.ProviderWithEphemeralResources = &WordpressProvider{}
 
 // ScaffoldingProvider defines the provider implementation.
 type WordpressProvider struct {
@@ -98,11 +100,11 @@ func (p *WordpressProvider) Schema(ctx context.Context, req provider.SchemaReque
 				Description: "Application password authentication used by REST resources and data sources.",
 				Attributes: map[string]schema.Attribute{
 					"username": schema.StringAttribute{
-						Optional: true,
+						Optional:            true,
 						MarkdownDescription: "Username used together with the application password. Can also be set via `WP_TF_PROVIDER_APP_USERNAME` or `WORDPRESS_APP_USERNAME`.",
 					},
 					"password": schema.StringAttribute{
-						Optional: true,
+						Optional:            true,
 						Sensitive:           true,
 						MarkdownDescription: "Application password for REST authentication. Can also be set via `WP_TF_PROVIDER_APP_PASSWORD` or `WORDPRESS_APP_PASSWORD`.",
 					},
@@ -112,11 +114,11 @@ func (p *WordpressProvider) Schema(ctx context.Context, req provider.SchemaReque
 				Description: "Normal WordPress user/password authentication used for nonce/AJAX workflows.",
 				Attributes: map[string]schema.Attribute{
 					"username": schema.StringAttribute{
-						Optional: true,
+						Optional:            true,
 						MarkdownDescription: "Username for nonce/AJAX authentication. Can also be set via `WP_TF_PROVIDER_USER_USERNAME` or `WORDPRESS_USER_USERNAME`.",
 					},
 					"password": schema.StringAttribute{
-						Optional: true,
+						Optional:            true,
 						Sensitive:           true,
 						MarkdownDescription: "Normal user password for nonce/AJAX authentication. Can also be set via `WP_TF_PROVIDER_USER_PASSWORD` or `WORDPRESS_USER_PASSWORD`.",
 					},
@@ -156,6 +158,7 @@ func (p *WordpressProvider) Configure(ctx context.Context, req provider.Configur
 
 	dataSourceData := &providerData{HasAppAuth: hasAppAuth, HasUserAuth: hasUserAuth}
 	resourceData := &providerData{HasAppAuth: hasAppAuth, HasUserAuth: hasUserAuth}
+	ephemeralResourceData := &providerData{HasAppAuth: hasAppAuth, HasUserAuth: hasUserAuth}
 
 	if host != "" {
 		appClient, err := wpapi.New(host, appUsername, appPassword)
@@ -166,6 +169,7 @@ func (p *WordpressProvider) Configure(ctx context.Context, req provider.Configur
 
 		dataSourceData.AppClient = appClient
 		resourceData.AppClient = appClient
+		ephemeralResourceData.AppClient = appClient
 
 		if hasUserAuth {
 			userClient := &wpappauth.Service{
@@ -176,15 +180,18 @@ func (p *WordpressProvider) Configure(ctx context.Context, req provider.Configur
 
 			dataSourceData.UserClient = userClient
 			resourceData.UserClient = userClient
+			ephemeralResourceData.UserClient = userClient
 		}
 	}
 
 	resp.DataSourceData = dataSourceData
+	resp.EphemeralResourceData = ephemeralResourceData
 	resp.ResourceData = resourceData
 }
 
 func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		NewApplicationPasswordResource,
 		NewPageResource,
 		NewPluginResource,
 		NewPostResource,
@@ -195,11 +202,19 @@ func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Res
 
 func (p *WordpressProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
+		NewApplicationPasswordDataSource,
+		NewApplicationPasswordsDataSource,
 		NewPluginInfoDataSource,
 		NewPagesDataSource,
 		NewPluginsDataSource,
 		NewPostsDataSource,
 		NewUsersDataSource,
+	}
+}
+
+func (p *WordpressProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
+	return []func() ephemeral.EphemeralResource{
+		NewApplicationPasswordEphemeralResource,
 	}
 }
 
