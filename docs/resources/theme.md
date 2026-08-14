@@ -3,12 +3,12 @@
 page_title: "wordpress_theme Resource - terraform-provider-wordpress"
 subcategory: ""
 description: |-
-  Manages a WordPress theme by slug. Creating this resource installs the theme via wp-admin AJAX and deleting it removes the theme. Set active to true to activate the theme. This resource needs user_auth for wp-admin operations and app_auth to read theme status.
+  Manages a WordPress theme by slug. Creating this resource installs the theme via wp-admin AJAX and deleting it removes the theme. Set active to true to activate the theme. This resource needs both user_auth for wp-admin operations and app_auth to read theme status.
 ---
 
 # wordpress_theme (Resource)
 
-Manages a WordPress theme by slug. Creating this resource installs the theme via wp-admin AJAX and deleting it removes the theme. Set `active` to true to activate the theme. This resource needs `user_auth` for wp-admin operations and `app_auth` to read theme status.
+Manages a WordPress theme by slug. Creating this resource installs the theme via wp-admin AJAX and deleting it removes the theme. Set `active` to true to activate the theme. This resource needs both `user_auth` for wp-admin operations and `app_auth` to read theme status.
 
 
 

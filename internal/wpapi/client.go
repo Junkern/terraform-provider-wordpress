@@ -21,7 +21,7 @@ const (
 	postCollection                = "posts"
 	userCollection                = "users"
 	jsonContentType               = "application/json"
-	themeCollection								= "themes"
+	themeCollection               = "themes"
 )
 
 var pluginInfoURL = "https://api.wordpress.org/plugins/info/1.2/"
