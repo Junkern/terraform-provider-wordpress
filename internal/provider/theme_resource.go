@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 
+	"terraform-provider-wordpress/internal/wpapi"
 	"terraform-provider-wordpress/internal/wpappauth"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -24,12 +25,14 @@ func NewThemeResource() resource.Resource {
 }
 
 type themeResource struct {
-	client *wpappauth.Service
+	client    *wpappauth.Service
+	appClient *wpapi.Client
 }
 
 type themeResourceModel struct {
-	ID   types.String `tfsdk:"id"`
-	Slug types.String `tfsdk:"slug"`
+	ID     types.String `tfsdk:"id"`
+	Slug   types.String `tfsdk:"slug"`
+	Active types.Bool   `tfsdk:"active"`
 }
 
 // Metadata returns the resource type name.
@@ -40,7 +43,7 @@ func (r *themeResource) Metadata(_ context.Context, req resource.MetadataRequest
 // Schema defines the schema for the resource.
 func (r *themeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manages a WordPress theme by slug. Creating this resource installs the theme via wp-admin AJAX and deleting it removes the theme. This resource does not cover activating or deactivating the theme. This resource needs the `user_auth` provider configuration block because it uses wp-admin AJAX requests to install and delete the theme.",
+		Description: "Manages a WordPress theme by slug. Creating this resource installs the theme via wp-admin AJAX and deleting it removes the theme. Set `active` to true to activate the theme. This resource needs both `user_auth` for wp-admin operations and `app_auth` to read theme status.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,
@@ -54,6 +57,11 @@ func (r *themeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+			},
+			"active": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Whether the theme should be active.",
 			},
 		},
 	}
@@ -75,6 +83,9 @@ func (r *themeResource) Configure(_ context.Context, req resource.ConfigureReque
 	}
 
 	r.client = client
+	if data, ok := req.ProviderData.(*providerData); ok {
+		r.appClient = data.AppClient
+	}
 }
 
 // Create installs the theme and stores the slug in state.
@@ -96,13 +107,20 @@ func (r *themeResource) Create(ctx context.Context, req resource.CreateRequest, 
 		)
 		return
 	}
+	if plan.Active.ValueBool() {
+		if err := r.client.ActivateTheme(ctx, slug); err != nil {
+			resp.Diagnostics.AddError("Error activating theme", "Could not activate theme, unexpected error: "+err.Error())
+			return
+		}
+	}
+	plan.Active = types.BoolValue(plan.Active.ValueBool())
 
 	plan.ID = types.StringValue(slug)
 	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
 }
 
-// Read keeps the managed slug in state.
+// Read refreshes the managed slug and activation status.
 func (r *themeResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	tflog.Debug(ctx, "Wordpress theme read")
 	var state themeResourceModel
@@ -114,6 +132,19 @@ func (r *themeResource) Read(ctx context.Context, req resource.ReadRequest, resp
 
 	if state.ID.IsNull() || state.ID.IsUnknown() {
 		state.ID = state.Slug
+	}
+	if r.appClient != nil {
+		themes, err := r.appClient.ListThemes(ctx)
+		if err != nil {
+			resp.Diagnostics.AddError("Error reading theme status", "Could not read themes, unexpected error: "+err.Error())
+			return
+		}
+		for _, theme := range themes {
+			if theme.Stylesheet == state.Slug.ValueString() {
+				state.Active = types.BoolValue(theme.Status == "active")
+				break
+			}
+		}
 	}
 
 	diags = resp.State.Set(ctx, &state)
@@ -130,6 +161,13 @@ func (r *themeResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	if plan.Active.ValueBool() {
+		if err := r.client.ActivateTheme(ctx, plan.Slug.ValueString()); err != nil {
+			resp.Diagnostics.AddError("Error activating theme", "Could not activate theme, unexpected error: "+err.Error())
+			return
+		}
+	}
+	plan.Active = types.BoolValue(plan.Active.ValueBool())
 
 	plan.ID = plan.Slug
 	diags = resp.State.Set(ctx, plan)
@@ -152,6 +190,32 @@ func (r *themeResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	if slug == "" {
 		resp.Diagnostics.AddError("Error Deleting Wordpress Theme", "theme slug is missing from state")
 		return
+	}
+
+	if r.appClient == nil {
+		resp.Diagnostics.AddError(
+			"Error Deleting Wordpress Theme",
+			"Could not verify whether the theme is active. Configure app_auth before deleting a theme.",
+		)
+		return
+	}
+
+	themes, err := r.appClient.ListThemes(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error Deleting Wordpress Theme",
+			"Could not verify whether the theme is active, so deletion was aborted: "+err.Error(),
+		)
+		return
+	}
+	for _, theme := range themes {
+		if theme.Stylesheet == slug && theme.Status == "active" {
+			resp.Diagnostics.AddError(
+				"Error Deleting Wordpress Theme",
+				"The theme is active and cannot be deleted. Activate another theme first.",
+			)
+			return
+		}
 	}
 
 	if err := r.client.DeleteTheme(ctx, slug); err != nil {

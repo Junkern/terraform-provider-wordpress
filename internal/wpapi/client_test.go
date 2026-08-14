@@ -120,6 +120,32 @@ func TestClientPagesCRUD(t *testing.T) {
 	}
 }
 
+func TestClientListThemes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/wp-json/wp/v2/themes" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("context") != "edit" || r.URL.Query().Get("per_page") != "100" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"stylesheet":"astra","status":"active"}]`))
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL+"/wp-json/wp/v2", "admin", "secret")
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	themes, err := client.ListThemes(context.Background())
+	if err != nil {
+		t.Fatalf("ListThemes returned error: %v", err)
+	}
+	if len(themes) != 1 || themes[0].Stylesheet != "astra" || themes[0].Status != "active" {
+		t.Fatalf("unexpected themes: %#v", themes)
+	}
+}
+
 func TestClientPostsCRUD(t *testing.T) {
 	var sawList bool
 	var sawCreate bool

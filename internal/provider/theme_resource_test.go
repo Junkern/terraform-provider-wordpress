@@ -17,16 +17,20 @@ provider "wordpress" {
 	user_auth {
 		username = "admin"
 	}
+	app_auth {
+		username = "admin"
+	}
 }
 
 resource "wordpress_theme" "test" {
-	slug = "astra"
+	slug = "oceanwp"
 }
 `,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("wordpress_theme.test", "slug", "astra"),
+					resource.TestCheckResourceAttr("wordpress_theme.test", "slug", "oceanwp"),
 				),
 			},
 		},
 	})
 }
+
