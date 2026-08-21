@@ -19,6 +19,7 @@ const (
 	pageCollection                = "pages"
 	pluginCollection              = "plugins"
 	postCollection                = "posts"
+	settingsCollection            = "settings"
 	userCollection                = "users"
 	jsonContentType               = "application/json"
 	themeCollection               = "themes"
@@ -146,6 +147,54 @@ type Plugin struct {
 type PluginInput struct {
 	Slug   string  `json:"slug,omitempty"`
 	Status *string `json:"status,omitempty"`
+}
+
+// Settings represents the WordPress site settings schema.
+type Settings struct {
+	Title                string `json:"title"`
+	Description          string `json:"description"`
+	URL                  string `json:"url"`
+	Email                string `json:"email"`
+	Timezone             string `json:"timezone"`
+	DateFormat           string `json:"date_format"`
+	TimeFormat           string `json:"time_format"`
+	StartOfWeek          int64  `json:"start_of_week"`
+	Language             string `json:"language"`
+	UseSmilies           bool   `json:"use_smilies"`
+	DefaultCategory      int64  `json:"default_category"`
+	DefaultPostFormat    string `json:"default_post_format"`
+	PostsPerPage         int64  `json:"posts_per_page"`
+	ShowOnFront          string `json:"show_on_front"`
+	PageOnFront          int64  `json:"page_on_front"`
+	PageForPosts         int64  `json:"page_for_posts"`
+	DefaultPingStatus    string `json:"default_ping_status"`
+	DefaultCommentStatus string `json:"default_comment_status"`
+	SiteLogo             int64  `json:"site_logo"`
+	SiteIcon             int64  `json:"site_icon"`
+}
+
+// SettingsInput is used for updating WordPress site settings.
+type SettingsInput struct {
+	Title                *string `json:"title,omitempty"`
+	Description          *string `json:"description,omitempty"`
+	URL                  *string `json:"url,omitempty"`
+	Email                *string `json:"email,omitempty"`
+	Timezone             *string `json:"timezone,omitempty"`
+	DateFormat           *string `json:"date_format,omitempty"`
+	TimeFormat           *string `json:"time_format,omitempty"`
+	StartOfWeek          *int64  `json:"start_of_week,omitempty"`
+	Language             *string `json:"language,omitempty"`
+	UseSmilies           *bool   `json:"use_smilies,omitempty"`
+	DefaultCategory      *int64  `json:"default_category,omitempty"`
+	DefaultPostFormat    *string `json:"default_post_format,omitempty"`
+	PostsPerPage         *int64  `json:"posts_per_page,omitempty"`
+	ShowOnFront          *string `json:"show_on_front,omitempty"`
+	PageOnFront          *int64  `json:"page_on_front,omitempty"`
+	PageForPosts         *int64  `json:"page_for_posts,omitempty"`
+	DefaultPingStatus    *string `json:"default_ping_status,omitempty"`
+	DefaultCommentStatus *string `json:"default_comment_status,omitempty"`
+	SiteLogo             *int64  `json:"site_logo,omitempty"`
+	SiteIcon             *int64  `json:"site_icon,omitempty"`
 }
 
 // ApplicationPassword represents the WordPress application password schema.
@@ -428,6 +477,24 @@ func (c *Client) GetPluginInfo(ctx context.Context, slug string) (*PluginInfo, e
 		return nil, err
 	}
 	return &info, nil
+}
+
+// GetSettings returns the WordPress site settings.
+func (c *Client) GetSettings(ctx context.Context) (*Settings, error) {
+	var settings Settings
+	if err := c.doJSON(ctx, http.MethodGet, c.requestURL(settingsCollection, nil), nil, &settings); err != nil {
+		return nil, err
+	}
+	return &settings, nil
+}
+
+// UpdateSettings updates the WordPress site settings.
+func (c *Client) UpdateSettings(ctx context.Context, input SettingsInput) (*Settings, error) {
+	var settings Settings
+	if err := c.doJSON(ctx, http.MethodPost, c.requestURL(settingsCollection, nil), input, &settings); err != nil {
+		return nil, err
+	}
+	return &settings, nil
 }
 
 // ListThemes returns installed themes using the edit context.

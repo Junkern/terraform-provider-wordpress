@@ -146,6 +146,53 @@ func TestClientListThemes(t *testing.T) {
 	}
 }
 
+func TestClientSettings(t *testing.T) {
+	var sawGet, sawUpdate bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wp-json/wp/v2/settings" {
+			t.Fatalf("unexpected settings path: %s", r.URL.Path)
+		}
+		if user, pass, ok := r.BasicAuth(); !ok || user != "admin" || pass != "secret" {
+			t.Fatalf("missing basic auth: %q %q %v", user, pass, ok)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			sawGet = true
+			_ = json.NewEncoder(w).Encode(Settings{Title: "Existing", StartOfWeek: 1, UseSmilies: true})
+		case http.MethodPost:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode settings payload: %v", err)
+			}
+			if payload["title"] != "Updated" || payload["start_of_week"] != float64(0) || payload["use_smilies"] != false {
+				t.Fatalf("unexpected settings payload: %#v", payload)
+			}
+			sawUpdate = true
+			_ = json.NewEncoder(w).Encode(Settings{Title: "Updated", StartOfWeek: 0, UseSmilies: false})
+		default:
+			t.Fatalf("unexpected settings method: %s", r.Method)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL+"/wp-json/wp/v2", "admin", "secret")
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	settings, err := client.GetSettings(context.Background())
+	if err != nil || settings.Title != "Existing" {
+		t.Fatalf("GetSettings returned %#v, %v", settings, err)
+	}
+	updated, err := client.UpdateSettings(context.Background(), SettingsInput{Title: stringPtr("Updated"), StartOfWeek: int64Ptr(0), UseSmilies: boolPtr(false)})
+	if err != nil || updated.Title != "Updated" {
+		t.Fatalf("UpdateSettings returned %#v, %v", updated, err)
+	}
+	if !sawGet || !sawUpdate {
+		t.Fatalf("missing calls: get=%v update=%v", sawGet, sawUpdate)
+	}
+}
+
 func TestClientPostsCRUD(t *testing.T) {
 	var sawList bool
 	var sawCreate bool
@@ -639,5 +686,9 @@ func stringPtr(value string) *string {
 }
 
 func boolPtr(value bool) *bool {
+	return &value
+}
+
+func int64Ptr(value int64) *int64 {
 	return &value
 }
