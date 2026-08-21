@@ -11,6 +11,7 @@ The provider connects to a WordPress site via its REST API and supports both app
 - `wordpress_page` - manage WordPress pages
 - `wordpress_plugin` - install, activate, and remove WordPress plugins
 - `wordpress_post` - manage WordPress posts
+- `wordpress_wp_api_settings` - manage WordPress site settings through the REST API
 - `wordpress_user` - manage WordPress users
 
 ## Supported Data Sources

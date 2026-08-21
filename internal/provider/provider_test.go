@@ -62,3 +62,15 @@ func TestConfigValueReturnsEmptyWhenEnvironmentVariableMissing(t *testing.T) {
 		t.Fatalf("expected empty value when env var is missing, got %q", value)
 	}
 }
+
+func TestWPAPISettingsInputPreservesZeroValues(t *testing.T) {
+	input := wpAPISettingsInputFromModel(wpAPISettingsResourceModel{
+		Title:       types.StringValue("Site"),
+		StartOfWeek: types.Int64Value(0),
+		UseSmilies:  types.BoolValue(false),
+	})
+
+	if input.Title == nil || *input.Title != "Site" || input.StartOfWeek == nil || *input.StartOfWeek != 0 || input.UseSmilies == nil || *input.UseSmilies {
+		t.Fatalf("zero values were not preserved: %#v", input)
+	}
+}
