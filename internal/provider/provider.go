@@ -196,6 +196,7 @@ func (p *WordpressProvider) Resources(ctx context.Context) []func() resource.Res
 		NewPluginResource,
 		NewPostResource,
 		NewWPAPISettingsResource,
+		NewWPOptionsWritingResource,
 		NewThemeResource,
 		NewUserResource,
 	}
