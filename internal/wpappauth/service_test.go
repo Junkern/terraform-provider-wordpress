@@ -48,6 +48,29 @@ func TestThemeNonceFromHTML(t *testing.T) {
 	}
 }
 
+func TestParseWritingOptions(t *testing.T) {
+	body := `<form>
+<input type="hidden" name="_wpnonce" value="nonce" />
+<input name="_wp_http_referer" value="/wp-admin/options-writing.php" />
+<select name="default_category"><option value="1">Uncategorized</option><option value="3" selected="selected">News</option></select>
+<select name="default_post_format"><option value="0" selected="selected">Standard</option></select>
+<input name="mailserver_url" value="mail.example.com" />
+<input name="mailserver_port" value="110" />
+<input name="mailserver_login" value="login@example.com" />
+<input name="mailserver_pass" value="" />
+<select name="default_email_category"><option value="1" selected>Uncategorized</option></select>
+<textarea name="ping_sites">https://example.com/ping</textarea>
+</form>`
+
+	options, err := parseWritingOptions(body)
+	if err != nil {
+		t.Fatalf("parseWritingOptions returned error: %v", err)
+	}
+	if options.DefaultCategory != 3 || options.DefaultPostFormat != "0" || options.MailserverPort != 110 || options.DefaultEmailCategory != 1 || options.PingSites != "https://example.com/ping" {
+		t.Fatalf("unexpected writing options: %#v", options)
+	}
+}
+
 func TestCreateApplicationPassword(t *testing.T) {
 	var sawLoginCookie bool
 	var sawPermalinkUpdate bool

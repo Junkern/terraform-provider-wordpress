@@ -59,6 +59,187 @@ type Result struct {
 	Password string `json:"password"`
 }
 
+// WritingOptions contains the settings from WordPress's Writing Settings page.
+type WritingOptions struct {
+	DefaultCategory      int64
+	DefaultPostFormat    string
+	MailserverURL        string
+	MailserverPort       int64
+	MailserverLogin      string
+	MailserverPass       string
+	DefaultEmailCategory int64
+	PingSites            string
+}
+
+// GetWritingOptions reads the Writing Settings page through wp-admin.
+func (s *Service) GetWritingOptions(ctx context.Context) (*WritingOptions, error) {
+	client, siteURL, err := s.ensureAuthenticatedSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := s.fetchWritingOptionsPage(ctx, client, siteURL)
+	if err != nil {
+		return nil, err
+	}
+	return parseWritingOptions(body)
+}
+
+// UpdateWritingOptions updates the Writing Settings page through wp-admin.
+func (s *Service) UpdateWritingOptions(ctx context.Context, options WritingOptions) error {
+	client, siteURL, err := s.ensureAuthenticatedSession(ctx)
+	if err != nil {
+		return err
+	}
+
+	body, err := s.fetchWritingOptionsPage(ctx, client, siteURL)
+	if err != nil {
+		return err
+	}
+	nonce, err := extractHiddenField(body, "_wpnonce")
+	if err != nil {
+		return err
+	}
+	referer, err := extractHiddenField(body, "_wp_http_referer")
+	if err != nil {
+		return err
+	}
+
+	form := url.Values{}
+	form.Set("option_page", "writing")
+	form.Set("action", "update")
+	form.Set("_wpnonce", nonce)
+	form.Set("_wp_http_referer", referer)
+	form.Set("default_category", strconv.FormatInt(options.DefaultCategory, 10))
+	form.Set("default_post_format", options.DefaultPostFormat)
+	form.Set("mailserver_url", options.MailserverURL)
+	form.Set("mailserver_port", strconv.FormatInt(options.MailserverPort, 10))
+	form.Set("mailserver_login", options.MailserverLogin)
+	form.Set("mailserver_pass", options.MailserverPass)
+	form.Set("default_email_category", strconv.FormatInt(options.DefaultEmailCategory, 10))
+	form.Set("ping_sites", options.PingSites)
+	form.Set("submit", "Save Changes")
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, joinPath(siteURL, "wp-admin/options.php"), strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Referer", joinPath(siteURL, "wp-admin/options-writing.php"))
+	request.Header.Set("Origin", siteURL.String())
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("writing settings update returned %s", response.Status)
+	}
+	return nil
+}
+
+func (s *Service) fetchWritingOptionsPage(ctx context.Context, client *http.Client, siteURL *url.URL) (string, error) {
+	pageURL := joinPath(siteURL, "wp-admin/options-writing.php")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Referer", pageURL)
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("writing settings page returned %s", response.Status)
+	}
+	body, err := io.ReadAll(response.Body)
+	return string(body), err
+}
+
+func parseWritingOptions(body string) (*WritingOptions, error) {
+	value := func(name string) (string, error) { return formFieldValue(body, name) }
+	defaultCategory, err := value("default_category")
+	if err != nil {
+		return nil, err
+	}
+	defaultPostFormat, err := value("default_post_format")
+	if err != nil {
+		return nil, err
+	}
+	mailserverURL, err := value("mailserver_url")
+	if err != nil {
+		return nil, err
+	}
+	mailserverPort, err := value("mailserver_port")
+	if err != nil {
+		return nil, err
+	}
+	mailserverLogin, err := value("mailserver_login")
+	if err != nil {
+		return nil, err
+	}
+	mailserverPass, err := value("mailserver_pass")
+	if err != nil {
+		return nil, err
+	}
+	defaultEmailCategory, err := value("default_email_category")
+	if err != nil {
+		return nil, err
+	}
+	pingSites, err := value("ping_sites")
+	if err != nil {
+		return nil, err
+	}
+	parseInt := func(name, raw string) (int64, error) {
+		parsed, parseErr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+		if parseErr != nil {
+			return 0, fmt.Errorf("invalid %s value %q: %w", name, raw, parseErr)
+		}
+		return parsed, nil
+	}
+	category, err := parseInt("default_category", defaultCategory)
+	if err != nil {
+		return nil, err
+	}
+	port, err := parseInt("mailserver_port", mailserverPort)
+	if err != nil {
+		return nil, err
+	}
+	emailCategory, err := parseInt("default_email_category", defaultEmailCategory)
+	if err != nil {
+		return nil, err
+	}
+	return &WritingOptions{category, defaultPostFormat, mailserverURL, port, mailserverLogin, mailserverPass, emailCategory, pingSites}, nil
+}
+
+func formFieldValue(body, name string) (string, error) {
+	quotedName := regexp.QuoteMeta(name)
+	input := regexp.MustCompile(`(?is)<input\b[^>]*\bname=["']` + quotedName + `["'][^>]*>`).FindString(body)
+	if input != "" {
+		match := regexp.MustCompile(`(?is)\bvalue=["']([^"']*)["']`).FindStringSubmatch(input)
+		if len(match) == 2 {
+			return html.UnescapeString(match[1]), nil
+		}
+		return "", nil
+	}
+	textarea := regexp.MustCompile(`(?is)<textarea\b[^>]*\bname=["']` + quotedName + `["'][^>]*>(.*?)</textarea>`).FindStringSubmatch(body)
+	if len(textarea) == 2 {
+		return html.UnescapeString(textarea[1]), nil
+	}
+	selectBlock := regexp.MustCompile(`(?is)<select\b[^>]*\bname=["']` + quotedName + `["'][^>]*>(.*?)</select>`).FindStringSubmatch(body)
+	if len(selectBlock) == 2 {
+		selected := regexp.MustCompile(`(?is)<option\b[^>]*\bvalue=["']([^"']*)["'][^>]*\bselected(?:=["'][^"']*["'])?[^>]*>`).FindStringSubmatch(selectBlock[1])
+		if len(selected) == 2 {
+			return html.UnescapeString(selected[1]), nil
+		}
+	}
+	return "", fmt.Errorf("could not find %s on WordPress writing settings page", name)
+}
+
 // InstallTheme logs in with normal credentials and installs a theme via wp-admin/admin-ajax.php.
 func (s *Service) InstallTheme(ctx context.Context, slug string) error {
 	if strings.TrimSpace(slug) == "" {
